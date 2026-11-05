@@ -1,0 +1,43 @@
+# 统一入库的行尾，避免不同机器上的换行差异污染 diff。
+* text=auto
+
+# Windows 脚本保持 CRLF，PowerShell 与 cmd 对此最稳妥。
+*.ps1    text eol=crlf
+*.bat    text eol=crlf
+*.cmd    text eol=crlf
+
+# Shell 与 CI 配置使用 LF。
+*.sh     text eol=lf
+*.yml    text eol=lf
+*.yaml   text eol=lf
+
+# 源码与文档
+*.py     text
+*.cs     text
+*.xaml   text
+*.xml    text
+*.json   text
+*.toml   text
+*.md     text
+
+# 二进制：不做行尾转换，也不参与 diff
+*.png    binary
+*.jpg    binary
+*.jpeg   binary
+*.gif    binary
+*.ico    binary
+*.pdf    binary
+*.dll    binary
+*.pdb    binary
+*.exe    binary
+*.zip    binary
+*.gdb    binary
+
+# 生成的任务数据目录本身已被忽略；这里只兜底防止二进制要素被当作文本处理
+*.shx    binary
+*.dbf    binary
+*.prj    text
+*.sbn    binary
+*.sbx    binary
+*.tif    binary
+*.tiff   binary

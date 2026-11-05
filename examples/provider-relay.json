@@ -1,0 +1,12 @@
+{
+  "id": "my-relay",
+  "preset": "custom",
+  "name": "我的中转站",
+  "protocol": "openai",
+  "base_url": "https://example.com/v1",
+  "model": "replace-with-your-model-id",
+  "reasoning": "none",
+  "vision": false,
+  "tools": true,
+  "stream_usage": true
+}

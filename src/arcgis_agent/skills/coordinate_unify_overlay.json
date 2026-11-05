@@ -1,0 +1,25 @@
+{
+  "name": "coordinate_unify_overlay",
+  "title": "坐标系统一后叠合分析",
+  "summary": "先核对两个数据的坐标系，把不一致的一方投影到目标坐标系，再做相交/联合叠合并验收结果坐标系。",
+  "when_to_use": "两个图层坐标系不同导致叠合失败，或用户要求统一坐标系后做 intersect/union/clip 时。",
+  "params": [
+    {"name": "dataset_a", "description": "第一个数据集的绝对路径"},
+    {"name": "dataset_b", "description": "第二个数据集的绝对路径"},
+    {"name": "target_wkid", "description": "目标坐标系 WKID，如 4326 或 3857，来自用户要求或 describe 结果"}
+  ],
+  "steps": [
+    {"tool": "describe", "arguments": {"dataset": "{{params.dataset_a}}"}, "note": "读取 A 的坐标系 wkid"},
+    {"tool": "describe", "arguments": {"dataset": "{{params.dataset_b}}"}, "note": "读取 B 的坐标系 wkid；若两者已一致且等于目标，可跳过投影步骤"},
+    {"tool": "project", "arguments": {"dataset": "{{params.dataset_a}}", "target_wkid": "{{params.target_wkid}}", "output_name": "a_projected"}, "note": "datum 不同时必须补充 transformation 参数，取值来自 ArcGIS 返回的适用变换；B 不一致时同样单独投影"},
+    {"tool": "intersect", "arguments": {"datasets": ["{{steps.a_projected.output}}", "{{params.dataset_b}}"], "output_name": "overlay"}, "note": "按需求可换 union（要求全为面）或 clip"},
+    {"tool": "verify_dataset", "arguments": {"dataset": "{{steps.overlay.output}}", "wkid": "{{params.target_wkid}}"}, "note": "断言结果坐标系确实是目标坐标系"}
+  ],
+  "verification": "verify_dataset 的 wkid 断言通过才算统一成功；报告叠合结果的记录数与输出路径。",
+  "pitfalls": [
+    "投影与定义投影不同：project 做坐标变换，define_projection 只改元数据标签，用错会破坏数据",
+    "跨 datum（如 CGCS2000 转 WGS84）缺少 transformation 会被运行时拒绝",
+    "union 要求全部输入为面且坐标系一致",
+    "上一步的真实输出路径必须原样用于下一步，不得编造"
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "name": "hydrology_watershed",
+  "title": "水文分析：填洼-流向-汇流累积链",
+  "summary": "从 DEM 提取水文流向与汇流累积量，用于流域、河网与汇水区分析。严格按 fill → flow_direction → flow_accumulation 顺序串联真实输出路径。",
+  "when_to_use": "用户给出 DEM 栅格并要求流向、汇流累积、河网提取或流域划分时。",
+  "requires": ["Spatial Analyst"],
+  "params": [
+    {"name": "dem", "description": "DEM 栅格的绝对路径（如 E:/data/dem.tif 或 GDB 内栅格完整路径）"}
+  ],
+  "steps": [
+    {"tool": "describe", "arguments": {"dataset": "{{params.dem}}"}, "note": "确认数据类型为栅格、坐标系与像元单位；地理坐标系时后续距离参数用度"},
+    {"tool": "fill", "arguments": {"dataset": "{{params.dem}}", "output_name": "filled"}, "note": "填平洼地，避免流向计算出现汇（sink）"},
+    {"tool": "flow_direction", "arguments": {"dataset": "{{steps.filled.output}}", "output_name": "flowdir"}, "note": "必须使用填洼结果，默认 D8"},
+    {"tool": "flow_accumulation", "arguments": {"dataset": "{{steps.flowdir.output}}", "output_name": "flowacc", "data_type": "FLOAT"}, "note": "必须使用流向栅格作为输入；值越大代表上游汇水面积越大"}
+  ],
+  "verification": "用 read_rows 或后续 reclassify/contour_lines 检查 flowacc 值域是否符合预期；如需河网，可用 reclassify 把高汇流值区间映射为 1 再转矢量。向用户报告每一步的真实输出路径。",
+  "pitfalls": [
+    "cell_size、z_limit 等参数是纯数字，使用输入数据的线性单位；地理坐标系 DEM 要填很小的度值",
+    "分析子进程不继承 Pro 会话环境，extent/cellSize 由工具统一重置",
+    "签出 Spatial Analyst 失败时整次调用失败，不会退回部分结果",
+    "flow_accumulation 输入必须是 flow_direction 的输出，直接给 DEM 会得到无意义结果"
+  ]
+}

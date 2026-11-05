@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "steps": [
+    {"tool": "describe", "arguments": {"dataset": "E:/GIS/data.gdb/parcels"}},
+    {"tool": "select_features", "arguments": {
+      "dataset": "E:/GIS/data.gdb/parcels",
+      "filter": {"field": "land_type", "operator": "EQ", "value": "A"},
+      "output_name": "parcels_type_a"
+    }}
+  ]
+}

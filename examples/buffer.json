@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "steps": [
+    {"tool": "describe", "arguments": {"dataset": "E:/GIS/data.gdb/roads"}},
+    {"tool": "buffer", "arguments": {"dataset": "E:/GIS/data.gdb/roads", "distance": "500 Meters", "output_name": "roads_buffer_500m"}}
+  ]
+}

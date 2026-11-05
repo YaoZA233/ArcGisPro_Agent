@@ -1,0 +1,25 @@
+{
+  "name": "attribute_edit_delivery",
+  "title": "副本属性编辑与成果交付",
+  "summary": "在数据副本上新增字段并按表达式计算取值，用结构化断言验收后导出 CSV 交付；全程不改动源数据。",
+  "when_to_use": "用户要求新增/更新字段、按公式计算属性值并交付表格成果时。",
+  "params": [
+    {"name": "dataset", "description": "源数据（要素类或表）的绝对路径"},
+    {"name": "field_name", "description": "新字段名，字母开头的 ASCII"},
+    {"name": "expression", "description": "算术表达式，字段引用写成 !字段名!，如 !price! * 1.05 + 2；只允许 + - * / // % ** 和数字"}
+  ],
+  "steps": [
+    {"tool": "describe", "arguments": {"dataset": "{{params.dataset}}"}, "note": "确认表达式引用的字段存在且为数值类型"},
+    {"tool": "add_field", "arguments": {"dataset": "{{params.dataset}}", "field_name": "{{params.field_name}}", "field_type": "DOUBLE", "output_name": "with_field"}, "note": "field_type 按需换 LONG/TEXT 等；此步已生成副本，后续步骤都在副本上"},
+    {"tool": "calculate_field", "arguments": {"dataset": "{{steps.with_field.output}}", "field": "{{params.field_name}}", "expression": "{{params.expression}}", "output_name": "calculated"}, "note": "只更新部分记录时补 filter 条件"},
+    {"tool": "verify_dataset", "arguments": {"dataset": "{{steps.calculated.output}}", "fields": ["{{params.field_name}}"], "non_null_fields": ["{{params.field_name}}"]}, "note": "断言新字段存在且无空值；按业务补 min_count 等"},
+    {"tool": "export_table_csv", "arguments": {"dataset": "{{steps.calculated.output}}", "output_name": "delivery"}, "note": "导出交付 CSV；只需部分字段时补 fields 列表"}
+  ],
+  "verification": "verify_dataset 断言全部通过且 CSV 文件存在才算交付完成；报告副本与 CSV 的真实路径，明确源数据未被修改。",
+  "pitfalls": [
+    "表达式不是 Python/SQL 代码，不支持函数调用、字符串运算和条件语句；不支持的写法会被直接拒绝",
+    "表达式引用的字段必须是数值类型，文本字段参与运算会失败",
+    "字段名区分大小写，必须与 describe 返回一致",
+    "每次工具调用仍需用户单独授权"
+  ]
+}

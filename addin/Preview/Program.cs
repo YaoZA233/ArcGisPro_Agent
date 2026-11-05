@@ -1,0 +1,99 @@
+using System.Windows;
+using System.IO;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using System.Windows.Threading;
+using System.Text.Json;
+using System.Windows.Controls;
+using System.Reflection;
+
+namespace ArcGISAgent;
+
+internal static class Program
+{
+    [STAThread]
+    private static void Main(string[] args)
+    {
+        var app = new Application();
+        var view = new AgentView();
+        var window = new Window { Title = "GIS Agent · 界面验证", Width = 450, Height = 920, MinWidth = 325, MinHeight = 600, Content = view, WindowStartupLocation = WindowStartupLocation.CenterScreen };
+        bool captureSettings = args.Length >= 2 && args[0] == "--capture-settings";
+        bool captureSelection = args.Length >= 2 && args[0] == "--capture-selection";
+        bool captureApproval = args.Length >= 2 && (args[0] == "--capture-approval" || captureSelection);
+        if (captureSettings || captureApproval)
+        {
+            window.ShowActivated = false; window.ShowInTaskbar = false;
+            window.WindowStartupLocation = WindowStartupLocation.Manual;
+            window.Left = -20000; window.Top = -20000;
+            if (args.Length >= 3 && int.TryParse(args[2], out int width)) window.Width = Math.Clamp(width, 325, 1000);
+        }
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        int attempts = 0;
+        timer.Tick += (_, _) =>
+        {
+            string? root = Environment.GetEnvironmentVariable("ARCGIS_AGENT_HOME");
+            if (root is null) return;
+            if (captureSettings || captureApproval)
+            {
+                var combo = (ComboBox)view.FindName("ProviderCombo");
+                if (combo.Items.Count == 0 && ++attempts < 20) return;
+                ((Expander)view.FindName("SettingsPanel")).IsExpanded = true;
+                ((Expander)view.FindName("ConnectionManager")).IsExpanded = true;
+                if (args.Length >= 4 && args[3] == "compact") ((Expander)view.FindName("ConnectionManager")).IsExpanded = false;
+                view.UpdateLayout();
+                if (args.Length >= 4 && args[3] == "lower")
+                {
+                    ((ScrollViewer)view.FindName("SettingsScroll")).ScrollToEnd();
+                    view.UpdateLayout();
+                }
+                if (captureApproval)
+                {
+                    object parameters = captureSelection ? new { selection_token = new string('a', 32), output_name = "selected_points" } :
+                        new { dataset = Path.Combine(root, "workspace", "smoke", "input.gdb", "points"), distance = "500 Meters", output_name = "buffers" };
+                    using var approval = JsonDocument.Parse(JsonSerializer.Serialize(new { request_id = "ui-fixture", title = captureSelection ? "导出已确认的选择集快照（界面测试）" : "创建测地线缓冲区（界面测试）",
+                        tool = captureSelection ? "export_selection" : "buffer", arcgis_tool = captureSelection ? "management.MakeFeatureLayer + CopyFeatures" : "analysis.Buffer", writes = true, effect = "界面验证：未执行工具。确认后在独立任务目录创建新成果，保留原始数据。",
+                        arguments = parameters,
+                        selection = captureSelection ? new { layer_name = "人工测试点", selected_count = 2, dataset = Path.Combine(root, "workspace", "smoke", "input.gdb", "points"), captured_at = "2026-11-03T00:00:00Z",
+                            semantics = "冻结捕获时的所选 ID；读取已保存的数据，不包含未提交编辑。" } : null,
+                        expected_outputs = new[] { Path.Combine(root, "workspace", "smoke", "runs", "example", "outputs", "results.gdb", "buffers") } }));
+                    typeof(AgentView).GetMethod("ShowApproval", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(view, new object[] { approval.RootElement });
+                    if (args.Length >= 4 && args[3] == "dark")
+                    {
+                        typeof(AgentView).GetField("dark", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(view, true);
+                        typeof(AgentView).GetMethod("ApplyTheme", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(view, null);
+                    }
+                    view.UpdateLayout();
+                }
+                var bitmap = new RenderTargetBitmap((int)view.ActualWidth, (int)view.ActualHeight, 96, 96, PixelFormats.Pbgra32);
+                bitmap.Render(view);
+                var image = new PngBitmapEncoder(); image.Frames.Add(BitmapFrame.Create(bitmap));
+                using (var output = File.Create(args[1])) image.Save(output);
+                File.WriteAllText(Path.ChangeExtension(args[1], ".json"), JsonSerializer.Serialize(new { width = view.ActualWidth, height = view.ActualHeight, provider_count = combo.Items.Count,
+                    selected = combo.Text, status = ((TextBlock)view.FindName("ProviderStatusText")).Text,
+                    approval_fixture = captureApproval, approval_visible = ((Border)view.FindName("ApprovalCard")).IsVisible,
+                    composer_visible = ((Border)view.FindName("ComposerPanel")).IsVisible,
+                    deny_has_focus = ((Button)view.FindName("DenyOperationButton")).IsKeyboardFocused }));
+                app.Shutdown(combo.Items.Count > 0 ? 0 : 1);
+                return;
+            }
+            string request = Path.Combine(root, "workspace", "capture.request");
+            if (!File.Exists(request) || view.ActualWidth < 1 || view.ActualHeight < 1) return;
+            File.Delete(request);
+            var dpi = VisualTreeHelper.GetDpi(view);
+            var target = new RenderTargetBitmap((int)(view.ActualWidth * dpi.DpiScaleX), (int)(view.ActualHeight * dpi.DpiScaleY), 96 * dpi.DpiScaleX, 96 * dpi.DpiScaleY, PixelFormats.Pbgra32);
+            target.Render(view);
+            var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(target));
+            using var file = File.Create(Path.Combine(root, "workspace", "studio-preview.png")); encoder.Save(file);
+        };
+        window.Loaded += (_, _) => timer.Start(); window.Closed += (_, _) => timer.Stop();
+        app.Run(window);
+    }
+}
+
+internal static class ProContext
+{
+    internal static bool SupportsHostTools => false;
+    internal static string ProjectPath() => "";
+    internal static Task AddToMap(string path) => throw new InvalidOperationException("独立预览不连接地图；请在 ArcGIS Pro 面板中添加成果。");
+    internal static Task<object> ExecuteAsync(string tool, JsonElement arguments, Func<bool> cancelled) => throw new InvalidOperationException("独立预览不连接 Pro 当前地图。");
+}

@@ -1,0 +1,171 @@
+<UserControl x:Class="ArcGISAgent.AgentView"
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ MinWidth="285" Background="{DynamicResource Page}" Foreground="{DynamicResource Ink}"
+ FontFamily="Segoe UI, Microsoft YaHei UI" FontSize="13" AllowDrop="True" Drop="Files_Drop" DragOver="Files_DragOver">
+ <UserControl.Resources>
+  <SolidColorBrush x:Key="Page" Color="#F3F6F8"/><SolidColorBrush x:Key="Surface" Color="#FFFFFF"/>
+  <SolidColorBrush x:Key="Ink" Color="#172F3B"/><SolidColorBrush x:Key="Muted" Color="#526675"/>
+  <SolidColorBrush x:Key="Line" Color="#D9E2E8"/><SolidColorBrush x:Key="Accent" Color="#096D68"/>
+  <SolidColorBrush x:Key="AccentSoft" Color="#E4F2EE"/><SolidColorBrush x:Key="Hover" Color="#EAF0F4"/>
+  <SolidColorBrush x:Key="Warning" Color="#FFF0DF"/>
+  <SolidColorBrush x:Key="OnAccent" Color="#FFFFFF"/>
+  <Style TargetType="Button" x:Key="SoftButton">
+   <Setter Property="Foreground" Value="{DynamicResource Ink}"/><Setter Property="Background" Value="{DynamicResource Surface}"/>
+   <Setter Property="BorderBrush" Value="{DynamicResource Line}"/><Setter Property="BorderThickness" Value="1"/>
+   <Setter Property="Padding" Value="10,7"/><Setter Property="Cursor" Value="Hand"/><Setter Property="MinHeight" Value="32"/>
+   <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
+    <Border x:Name="Chrome" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+     <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" RecognizesAccessKey="True"/>
+    </Border>
+    <ControlTemplate.Triggers>
+     <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Chrome" Property="Opacity" Value="0.8"/></Trigger>
+     <Trigger Property="IsPressed" Value="True"><Setter TargetName="Chrome" Property="Opacity" Value="0.6"/></Trigger>
+     <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource Accent}"/><Setter TargetName="Chrome" Property="BorderThickness" Value="2"/></Trigger>
+     <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Chrome" Property="Opacity" Value="0.4"/></Trigger>
+    </ControlTemplate.Triggers>
+   </ControlTemplate></Setter.Value></Setter>
+  </Style>
+  <Style TargetType="Button" BasedOn="{StaticResource SoftButton}"/>
+  <Style TargetType="TextBox">
+   <Setter Property="Foreground" Value="{DynamicResource Ink}"/><Setter Property="Background" Value="{DynamicResource Surface}"/>
+   <Setter Property="BorderBrush" Value="{DynamicResource Line}"/><Setter Property="Padding" Value="7"/>
+   <Setter Property="SelectionBrush" Value="#99BBD7D2"/>
+  </Style>
+  <Style TargetType="ComboBox"><Setter Property="MinHeight" Value="30"/><Setter Property="Foreground" Value="#172F3B"/></Style>
+  <Style TargetType="TextBlock" x:Key="Caption"><Setter Property="Foreground" Value="{DynamicResource Muted}"/><Setter Property="FontSize" Value="12"/><Setter Property="Margin" Value="0,0,0,5"/></Style>
+ </UserControl.Resources>
+ <Grid>
+  <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+  <Border Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1" Padding="14,13,14,10">
+   <StackPanel>
+    <Grid>
+     <Grid.ColumnDefinitions><ColumnDefinition Width="40"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+     <Border Background="{DynamicResource Accent}" CornerRadius="10" Width="34" Height="34" VerticalAlignment="Top">
+      <Viewbox Margin="8"><Canvas Width="24" Height="24"><Path Data="M12,1 L22,12 12,23 2,12 Z M12,6 L17,12 12,18 7,12 Z" Stroke="{DynamicResource OnAccent}" StrokeThickness="1.6"/></Canvas></Viewbox>
+     </Border>
+     <StackPanel Grid.Column="1"><TextBlock Text="GIS Agent" FontSize="19" FontWeight="SemiBold"/>
+      <TextBlock x:Name="StatusText" Text="正在连接工作台…" Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,3,0,0" TextWrapping="Wrap"/>
+     </StackPanel>
+     <Button Grid.Column="2" x:Name="ThemeButton" Content="外观" Click="Theme_Click" Padding="8,5" ToolTip="切换浅色 / 深色外观"/>
+    </Grid>
+    <TextBlock x:Name="ActualModelText" Text="请求模型：deepseek-flash" FontSize="12" Foreground="{DynamicResource Accent}" Margin="0,11,0,8" TextWrapping="Wrap"/>
+    <Grid><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions>
+     <Button x:Name="NewButton" Content="新对话" Click="Reset_Click" Margin="0,0,5,0"/>
+     <Button x:Name="HistoryButton" Grid.Column="1" Content="历史记录" Click="History_Click" Margin="0,0,5,0"/>
+     <Button x:Name="ExportButton" Grid.Column="2" Content="导出对话" Click="Export_Click"/>
+    </Grid>
+   </StackPanel>
+  </Border>
+  <Expander Grid.Row="1" x:Name="SettingsPanel" Header="模型与运行设置" Margin="14,8,14,6" Foreground="{DynamicResource Ink}">
+   <Border Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="8" Padding="12" Margin="0,8,0,0">
+    <ScrollViewer x:Name="SettingsScroll" MaxHeight="420" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+    <StackPanel x:Name="SettingsContent" Margin="0,0,5,0">
+     <TextBlock Text="当前连接" Style="{StaticResource Caption}"/>
+     <ComboBox x:Name="ProviderCombo" SelectionChanged="Provider_Changed" AutomationProperties.Name="当前模型连接"/>
+     <TextBlock x:Name="ProviderStatusText" Foreground="{DynamicResource Muted}" FontSize="12" TextWrapping="Wrap" Margin="0,6,0,8"/>
+     <Expander x:Name="ConnectionManager" Header="管理连接 / API 密钥" Margin="0,0,0,10">
+      <StackPanel Margin="0,8,0,0">
+       <TextBlock Text="供应商预设" Style="{StaticResource Caption}"/>
+       <ComboBox x:Name="PresetCombo" SelectionChanged="Preset_Changed" AutomationProperties.Name="供应商预设"/>
+       <Button Content="从预设新建独立连接" Click="NewConnection_Click" Margin="0,8,0,8"/>
+       <TextBlock Text="连接 ID（小写英文、数字、下划线或连字符）" Style="{StaticResource Caption}"/>
+       <TextBox x:Name="ConnectionIdBox" AutomationProperties.Name="连接 ID"/>
+       <TextBlock Text="显示名称" Style="{StaticResource Caption}" Margin="0,8,0,5"/>
+       <TextBox x:Name="ConnectionNameBox" AutomationProperties.Name="连接显示名称"/>
+       <TextBlock Text="API 协议" Style="{StaticResource Caption}" Margin="0,8,0,5"/>
+       <ComboBox x:Name="ProtocolCombo" SelectedIndex="0" AutomationProperties.Name="API 协议">
+        <ComboBoxItem Content="OpenAI Chat Completions 兼容" Tag="openai"/><ComboBoxItem Content="Anthropic Messages（Claude 原生）" Tag="anthropic"/>
+       </ComboBox>
+       <TextBlock Text="Base URL（含版本路径，例如 /v1）" Style="{StaticResource Caption}" Margin="0,8,0,5"/>
+       <TextBox x:Name="EndpointBox" AutomationProperties.Name="API 接口地址"/>
+       <TextBlock Text="API Key（留空保留；环境变量优先）" Style="{StaticResource Caption}" Margin="0,8,0,5"/>
+       <PasswordBox x:Name="ApiKeyBox" Padding="7" AutomationProperties.Name="API 密钥"/>
+       <TextBlock Text="默认模型 ID" Style="{StaticResource Caption}" Margin="0,8,0,5"/>
+       <TextBox x:Name="DefaultModelBox" AutomationProperties.Name="连接默认模型"/>
+       <TextBlock Text="推理参数模式（须与具体模型兼容）" Style="{StaticResource Caption}" Margin="0,8,0,5"/>
+       <ComboBox x:Name="ReasoningModeCombo" AutomationProperties.Name="推理参数模式"/>
+       <CheckBox x:Name="VisionCapability" Content="此模型支持图片输入" Margin="0,10,0,0"/>
+       <CheckBox x:Name="ToolsCapability" Content="启用 GIS 工具调用" Margin="0,8,0,0"/>
+       <CheckBox x:Name="StreamUsageCapability" Content="请求流式 token 用量（兼容接口）" Margin="0,8,0,0"/>
+       <Button Content="保存并使用此连接" Click="SaveConnection_Click" Background="{DynamicResource AccentSoft}" Margin="0,12,0,0"/>
+       <Button Content="删除编辑中的连接" Click="DeleteConnection_Click" Margin="0,6,0,0"/>
+       <TextBlock Text="密钥仅保存在本机 .env.local。保存地址后，对话和附件将发送至该地址。能力选项需按具体模型设置；DeepSeek 图片能力按模型自动判断。" Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,8,0,0"/>
+      </StackPanel>
+     </Expander>
+     <TextBlock Text="模型" Style="{StaticResource Caption}"/>
+     <Grid><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+      <ComboBox x:Name="ModelCombo" IsEditable="True" Text="deepseek-flash" AutomationProperties.Name="模型名称"><ComboBoxItem Content="deepseek-flash"/><ComboBoxItem Content="deepseek-v4-pro"/></ComboBox>
+      <Button Grid.Column="1" x:Name="RefreshModelsButton" Content="刷新" Click="RefreshModels_Click" Margin="6,0,0,0" ToolTip="从当前连接获取账户可用模型；接口不支持时可手动输入"/>
+     </Grid>
+     <Grid Margin="0,10,0,0"><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions>
+      <StackPanel Margin="0,0,8,0"><TextBlock Text="思考程度" Style="{StaticResource Caption}"/>
+       <ComboBox x:Name="ThinkingCombo" SelectedIndex="2" AutomationProperties.Name="思考程度">
+        <ComboBoxItem Content="关闭 · 更快" Tag="off"/><ComboBoxItem Content="轻量 · low" Tag="low"/><ComboBoxItem Content="深入 · high" Tag="high"/><ComboBoxItem Content="充分 · max" Tag="max"/>
+       </ComboBox>
+      </StackPanel>
+      <StackPanel Grid.Column="1"><TextBlock Text="最大输出 tokens" Style="{StaticResource Caption}"/>
+       <ComboBox x:Name="MaxTokensCombo" IsEditable="True" Text="8192" AutomationProperties.Name="最大输出 tokens"><ComboBoxItem Content="4096"/><ComboBoxItem Content="8192"/><ComboBoxItem Content="16384"/><ComboBoxItem Content="32768"/></ComboBox>
+      </StackPanel>
+     </Grid>
+     <TextBlock Text="图片精度" Style="{StaticResource Caption}" Margin="0,10,0,5"/>
+     <ComboBox x:Name="ImageDetailCombo" SelectedIndex="0" AutomationProperties.Name="图片精度"><ComboBoxItem Content="自动 · 保留细节" Tag="auto"/><ComboBoxItem Content="低 · 更快更省" Tag="low"/><ComboBoxItem Content="高 · 原图细节" Tag="high"/></ComboBox>
+     <CheckBox x:Name="ShowReasoning" Content="显示模型返回的推理内容" IsChecked="True" Margin="0,12,0,0"/>
+     <CheckBox x:Name="MotionToggle" Content="启用轻量动效" IsChecked="True" Margin="0,8,0,0"/>
+     <Button x:Name="ApplySettingsButton" Content="应用并保存设置" Click="ApplySettings_Click" Background="{DynamicResource AccentSoft}" Margin="0,12,0,0"/>
+     <TextBlock Text="推理模式为 none 时使用服务默认行为；其余模式按协议设置。仅显示 API 实际返回的推理内容或摘要。新设置用于后续请求。" TextWrapping="Wrap" Style="{StaticResource Caption}" Margin="0,8,0,0"/>
+    </StackPanel>
+    </ScrollViewer>
+   </Border>
+  </Expander>
+  <Border Grid.Row="2" BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1" Padding="14,7,14,9">
+   <StackPanel><UniformGrid Columns="4">
+    <StackPanel><TextBlock Text="输入 tokens" Style="{StaticResource Caption}"/><TextBlock x:Name="InputTokens" Text="—" FontWeight="SemiBold"/></StackPanel>
+    <StackPanel><TextBlock Text="输出 tokens" Style="{StaticResource Caption}"/><TextBlock x:Name="OutputTokens" Text="—" FontWeight="SemiBold"/></StackPanel>
+    <StackPanel><TextBlock Text="缓存命中" Style="{StaticResource Caption}"/><TextBlock x:Name="CacheTokens" Text="—" FontWeight="SemiBold"/></StackPanel>
+    <StackPanel><TextBlock Text="耗时" Style="{StaticResource Caption}"/><TextBlock x:Name="ElapsedText" Text="—" FontWeight="SemiBold"/></StackPanel>
+   </UniformGrid><ProgressBar x:Name="ActivityBar" Height="2" IsIndeterminate="True" Foreground="{DynamicResource Accent}" Margin="0,8,0,0" Visibility="Collapsed"/>
+   </StackPanel>
+  </Border>
+  <Grid Grid.Row="3">
+   <ScrollViewer x:Name="TranscriptScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="14,12"><StackPanel x:Name="Transcript"/></ScrollViewer>
+   <Border x:Name="HistoryPanel" Visibility="Collapsed" Background="{DynamicResource Page}" Padding="14">
+    <DockPanel>
+     <StackPanel DockPanel.Dock="Top"><TextBlock Text="最近的对话" FontSize="17" FontWeight="SemiBold"/>
+      <TextBlock Text="选择后可恢复对话上下文。" Foreground="{DynamicResource Muted}" Margin="0,5,0,10"/>
+     </StackPanel>
+     <Grid DockPanel.Dock="Bottom" Margin="0,10,0,0"><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions>
+      <Button Content="返回聊天" Click="CloseHistory_Click" Margin="0,0,6,0"/><Button Grid.Column="1" Content="继续此对话" Click="LoadHistory_Click" Background="{DynamicResource AccentSoft}"/>
+     </Grid>
+     <ListBox x:Name="HistoryList" Background="{DynamicResource Surface}" Foreground="{DynamicResource Ink}" BorderBrush="{DynamicResource Line}" DisplayMemberPath="Title" MouseDoubleClick="LoadHistory_Click"/>
+    </DockPanel>
+   </Border>
+  </Grid>
+  <Border x:Name="ApprovalCard" Grid.Row="4" Visibility="Collapsed" Background="{DynamicResource Warning}" BorderBrush="{DynamicResource Accent}" BorderThickness="1" CornerRadius="8" Margin="14,4,14,8" Padding="12">
+   <StackPanel>
+    <TextBlock x:Name="ApprovalTitle" Text="等待本次操作授权" FontWeight="SemiBold" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
+    <TextBlock x:Name="ApprovalSelectionSummary" Visibility="Collapsed" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,6,0,0"/>
+    <ScrollViewer MaxHeight="170" VerticalScrollBarVisibility="Auto" Margin="0,8,0,8"><TextBox x:Name="ApprovalDetails" IsReadOnly="True" TextWrapping="Wrap" BorderThickness="0" Background="Transparent" Padding="0" AutomationProperties.Name="操作参数与影响"/></ScrollViewer>
+    <TextBlock Text="仅授权这一操作；每个后续工具仍会询问。10 分钟未答复将停止。" Foreground="{DynamicResource Muted}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,8"/>
+    <WrapPanel x:Name="ApprovalButtons">
+     <Button x:Name="DenyOperationButton" Content="拒绝本次" Click="DenyOperation_Click" Margin="0,0,6,4"/>
+     <Button x:Name="AllowOperationButton" Content="允许本次" Click="AllowOperation_Click" Background="{DynamicResource AccentSoft}" Margin="0,0,6,4"/>
+     <Button Content="取消任务" Click="CancelOperation_Click" Margin="0,0,0,4"/>
+    </WrapPanel>
+   </StackPanel>
+  </Border>
+  <Border x:Name="ComposerPanel" Grid.Row="5" Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Line}" BorderThickness="0,1,0,0" Padding="14,10,14,12">
+   <StackPanel>
+    <TextBlock x:Name="NoticeText" Visibility="Collapsed" TextWrapping="Wrap" Foreground="{DynamicResource Muted}" Margin="0,0,0,8"/>
+    <WrapPanel x:Name="AttachmentsPanel" Margin="0,0,0,6"/>
+    <TextBox x:Name="PromptBox" MinHeight="65" MaxHeight="130" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" Padding="10" AutomationProperties.Name="任务描述" TextChanged="Prompt_TextChanged" ToolTip="输入任务，Ctrl+Enter 发送。支持拖入图片与文件。"/>
+    <Grid Margin="0,8,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+     <Button x:Name="AttachButton" Content="附件" Click="Attach_Click" Padding="9,7" ToolTip="添加图片、文本、GIS 数据引用；支持拖入"/>
+     <CheckBox x:Name="AllowWrites" Grid.Column="1" Content="允许写入" VerticalAlignment="Center" Margin="10,0" ToolTip="预先启用写入能力；每次工具或地图修改仍须单独确认。未勾选时也可在单次确认中授权写入。"/>
+     <Button x:Name="SendButton" Grid.Column="2" Content="发送" Padding="18,7" Background="{DynamicResource Accent}" Foreground="{DynamicResource OnAccent}" Click="Send_Click"/>
+    </Grid>
+    <TextBlock x:Name="DestinationText" Text="Ctrl+Enter 发送 · 附件与对话发送至当前连接" Foreground="{DynamicResource Muted}" FontSize="11" Margin="0,8,0,0" TextWrapping="Wrap"/>
+   </StackPanel>
+  </Border>
+ </Grid>
+</UserControl>

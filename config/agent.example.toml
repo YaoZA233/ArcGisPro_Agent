@@ -1,0 +1,24 @@
+# Copy to config/local.toml if you need overrides; paths resolve from this file.
+[arcgis]
+# Omit python to discover ArcGIS Pro through the Windows registry.
+# python = 'E:\programs\ArcGIS\bin\Python\envs\arcgispro-py3\python.exe'
+expected_version = "3.5.2"
+timeout_seconds = 180
+
+[agent]
+workspace = "../workspace"
+max_steps = 8
+# Optional: a directory of user skill packs (*.json). Same-named packs override
+# the built-ins. Paths resolve from this file; omit to use built-in skills only.
+# skills_dir = "../my_skills"
+
+[model]
+# Initial connection; workspace/providers.json takes precedence after saving connections.
+provider = "deepseek"
+# name/base_url preserve legacy DeepSeek configuration. Manage other connections
+# in the Pro panel or with `agent.ps1 providers`.
+name = "deepseek-flash"
+base_url = "https://api.deepseek.com"
+timeout_seconds = 120
+thinking = "high"
+max_tokens = 8192

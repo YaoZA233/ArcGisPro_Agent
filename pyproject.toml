@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "arcgispro-agent"
+version = "0.1.0"
+description = "Local agent foundation for ArcGIS Pro 3.5.2"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+arcgis-agent = "arcgis_agent.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+# scripts/debug/ 里有导入时就启动真实子进程的诊断脚本，限制收集范围避免误当成测试。
+testpaths = ["tests"]

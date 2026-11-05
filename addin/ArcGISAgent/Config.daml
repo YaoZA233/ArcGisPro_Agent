@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ArcGIS defaultAssembly="ArcGISAgent.dll" defaultNamespace="ArcGISAgent" xmlns="http://schemas.esri.com/DADF/Registry">
+  <AddInInfo id="{B95FF322-9FEA-41EF-BB5F-870AA49B91EE}" version="1.0" desktopVersion="3.5.0">
+    <Name>ArcGIS Agent</Name>
+    <Description>DeepSeek GIS assistant for ArcGIS Pro.</Description>
+    <Author>ArcGIS Agent</Author>
+    <Company>ArcGIS Agent</Company>
+    <Date>2026-11-02</Date>
+    <Subject>AI assistant</Subject>
+  </AddInInfo>
+  <modules>
+    <insertModule id="ArcGISAgent_Module" className="AgentModule" autoLoad="false" caption="ArcGIS Agent">
+      <tabs>
+        <tab id="ArcGISAgent_Tab" caption="GIS Agent">
+          <group refID="ArcGISAgent_Group" />
+        </tab>
+      </tabs>
+      <groups>
+        <group id="ArcGISAgent_Group" caption="智能助手" appearsOnAddInTab="false">
+          <button refID="ArcGISAgent_Open" size="large" />
+        </group>
+      </groups>
+      <controls>
+        <button id="ArcGISAgent_Open" caption="打开 Agent" className="OpenAgentButton" loadOnClick="true">
+          <tooltip heading="ArcGIS Agent">打开 GIS 对话助手。<disabledText /></tooltip>
+        </button>
+      </controls>
+      <dockPanes>
+        <dockPane id="ArcGISAgent_DockPane" caption="GIS Agent" className="AgentDockPane" dock="group" dockWith="esri_core_projectDockPane">
+          <content className="AgentView" />
+        </dockPane>
+      </dockPanes>
+    </insertModule>
+  </modules>
+</ArcGIS>

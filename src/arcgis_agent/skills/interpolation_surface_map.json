@@ -1,0 +1,28 @@
+{
+  "name": "interpolation_surface_map",
+  "title": "插值表面成图：IDW-等高线-阴影-出图",
+  "summary": "由采样点插值连续表面，叠加等高线与山体阴影，最后建立独立出图工程并导出图片。",
+  "when_to_use": "用户给出带数值字段的点数据并要求生成表面、等值线或专题出图时。",
+  "requires": ["Spatial Analyst"],
+  "params": [
+    {"name": "points", "description": "采样点要素类的绝对路径"},
+    {"name": "value_field", "description": "插值数值字段名，来自 describe 结果"},
+    {"name": "cell_size", "description": "输出像元大小，纯数字，用输入数据线性单位；地理坐标系填度值如 0.0005"},
+    {"name": "interval", "description": "等高线间距，纯数字，与 cell_size 同单位"},
+    {"name": "title", "description": "图名，同时作为布局名称"}
+  ],
+  "steps": [
+    {"tool": "describe", "arguments": {"dataset": "{{params.points}}"}, "note": "确认坐标系与单位，决定 cell_size 和 interval 的取值尺度"},
+    {"tool": "interpolate_surface", "arguments": {"dataset": "{{params.points}}", "value_field": "{{params.value_field}}", "method": "IDW", "cell_size": "{{params.cell_size}}", "power": 2, "output_name": "surface"}, "note": "需要地统计趋势时可改 KRIGING 并给 variogram"},
+    {"tool": "contour_lines", "arguments": {"dataset": "{{steps.surface.output}}", "interval": "{{params.interval}}", "output_name": "contours"}, "note": "等高线来自插值表面"},
+    {"tool": "hillshade", "arguments": {"dataset": "{{steps.surface.output}}", "output_name": "shade"}, "note": "地形阴影做底图"},
+    {"tool": "build_layout", "arguments": {"title": "{{params.title}}", "layers": ["{{steps.shade.output}}", "{{steps.contours.output}}"], "output_name": "surface_map"}, "note": "extent 省略时自动取图层范围并集；坐标系不一致会被拒绝"},
+    {"tool": "export_layout", "arguments": {"project": "{{steps.surface_map.project}}", "layout": "{{steps.surface_map.layout}}", "format": "PNG", "output_name": "surface_map_png", "dpi": 300}, "note": "project/layout 必须来自 build_layout 的真实返回"}
+  ],
+  "verification": "确认导出图片文件存在且非空；向用户报告 surface、contours、shade、aprx 与图片的完整路径。出图成功不等于插值方法业务正确，提醒用户核对值域与采样密度。",
+  "pitfalls": [
+    "cell_size/interval 填 300 之类的米制数值到地理坐标系数据会触发 ERROR 999999",
+    "IDW 用 power，KRIGING 用 variogram，两者互斥",
+    "build_layout 新建独立工程，不改动用户工程；export_layout 只读打开、从不保存"
+  ]
+}

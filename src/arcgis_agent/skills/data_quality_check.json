@@ -1,0 +1,22 @@
+{
+  "name": "data_quality_check",
+  "title": "数据质量检查：结构-记录-断言-统计",
+  "summary": "对单个数据集做只读体检：结构与坐标系、记录预览、可配置断言验收和字段统计，输出可引用的质量结论。",
+  "when_to_use": "用户要求检查数据质量、核对字段空值/唯一性、或交付前验收时。",
+  "params": [
+    {"name": "dataset", "description": "待检查数据集的绝对路径"},
+    {"name": "stat_field", "description": "要做汇总统计的数值字段名，来自 describe 结果"}
+  ],
+  "steps": [
+    {"tool": "describe", "arguments": {"dataset": "{{params.dataset}}"}, "note": "读取类型、坐标系、字段清单和数量"},
+    {"tool": "read_rows", "arguments": {"dataset": "{{params.dataset}}", "limit": 5}, "note": "预览真实记录，发现明显异常值"},
+    {"tool": "verify_dataset", "arguments": {"dataset": "{{params.dataset}}", "fields": ["{{params.stat_field}}"]}, "note": "按业务补充断言：min_count/max_count/non_null_fields/unique_fields/wkid/extent_within"},
+    {"tool": "summarize_statistics", "arguments": {"dataset": "{{params.dataset}}", "stats": [{"field": "{{params.stat_field}}", "statistic": "MEAN"}, {"field": "{{params.stat_field}}", "statistic": "MIN"}, {"field": "{{params.stat_field}}", "statistic": "MAX"}], "output_name": "quality_stats"}, "note": "statistic 可换 SUM/STD/MEDIAN 等；文本字段只能用 COUNT/CONCATENATE/MODE"}
+  ],
+  "verification": "汇总 verify_dataset 的逐项断言结果与统计表的真实数值，区分“工具成功”和“业务合格”；断言失败时如实列出 failures。",
+  "pitfalls": [
+    "verify_dataset 是只读工具，不产生成果文件；统计表输出在任务目录 results.gdb",
+    "字段名必须与 describe 完全一致，区分大小写",
+    "read_rows 每格文本最多 1024 字符，存在裁剪时会返回标记"
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "name": "suitability_site_selection",
+  "title": "适宜性选址：属性筛选-缓冲区-擦除-验收",
+  "summary": "先按属性条件筛出候选地块，再对约束要素做缓冲区并从候选中擦除，最后用结构化断言验收适宜地块。",
+  "when_to_use": "用户要求“筛选满足条件的地块/站点并排除某设施周边范围”这类选址任务时。",
+  "params": [
+    {"name": "dataset", "description": "候选地块要素类的绝对路径"},
+    {"name": "field_name", "description": "筛选字段名，必须与 describe 返回的字段一致"},
+    {"name": "value", "description": "筛选值；复杂条件时把 filter 改写为 all/any 复合结构"},
+    {"name": "constraint_dataset", "description": "约束要素（如保护区、道路）的绝对路径"},
+    {"name": "buffer_distance", "description": "缓冲距离，格式如 500 Meters"}
+  ],
+  "steps": [
+    {"tool": "describe", "arguments": {"dataset": "{{params.dataset}}"}, "note": "确认字段名、类型与坐标系，再决定筛选条件"},
+    {"tool": "select_features", "arguments": {"dataset": "{{params.dataset}}", "filter": {"field": "{{params.field_name}}", "operator": "EQ", "value": "{{params.value}}"}, "output_name": "candidates"}, "note": "operator 按需求换成 IN/CONTAINS/GT 等；多条件用 all/any 组合"},
+    {"tool": "buffer", "arguments": {"dataset": "{{params.constraint_dataset}}", "distance": "{{params.buffer_distance}}", "output_name": "constraint_buffer"}, "note": "对约束要素建缓冲"},
+    {"tool": "erase", "arguments": {"dataset": "{{steps.candidates.output}}", "erase_dataset": "{{steps.constraint_buffer.output}}", "output_name": "suitable"}, "note": "从候选中擦除缓冲区；erase 需要 Advanced 许可，失败时改用 clip 加反向范围或说明许可限制"},
+    {"tool": "verify_dataset", "arguments": {"dataset": "{{steps.suitable.output}}", "min_count": 0}, "note": "按业务补充断言：min_count、fields、unique_fields 等，如实报告 passed"}
+  ],
+  "verification": "verify_dataset 全部断言通过才算完成；空结果（0 个适宜地块）也是合法结论，须如实告知用户而不是放宽条件重试。",
+  "pitfalls": [
+    "筛选字段名必须先经 describe 核实，文本值区分大小写",
+    "擦除要求约束缓冲为面要素；线缓冲结果已是面，可直接使用",
+    "距离单位只接受 Meters/Kilometers/Feet/Miles 拼写",
+    "所有输出都在任务目录 results.gdb，源数据不变"
+  ]
+}

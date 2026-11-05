@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "steps": [
+    {"tool": "environment", "arguments": {}},
+    {"tool": "project_info", "arguments": {"project": "E:/GIS/MyProject/MyProject.aprx"}}
+  ]
+}
