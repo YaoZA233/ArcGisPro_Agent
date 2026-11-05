@@ -37,7 +37,8 @@ def main() -> int:
               f"PYTHONHOME={os.environ.get('PYTHONHOME')!r} CONDA_PREFIX={os.environ.get('CONDA_PREFIX')!r}",
               file=sys.stderr, flush=True)
         result = {"ok": True, "data": execute(request["tool"], request["arguments"], Path(request["output_dir"]),
-                                            selection_snapshot=request.get("selection_snapshot"))}
+                                            selection_snapshot=request.get("selection_snapshot"),
+                                            data_roots=request.get("data_roots"))}
     except Exception as exc:
         result = {"ok": False, "error": {"type": type(exc).__name__, "message": str(exc)}}
         arcpy = sys.modules.get("arcpy")

@@ -27,7 +27,7 @@ ArcPyRuntime       InProcessRuntime       MockRuntime
 | --- | --- |
 | `config.py` | TOML、环境变量、注册表发现；不导入 ArcPy |
 | `agent.py` | Planner 协议、JSON 计划校验、观察循环、任务记录 |
-| `catalog.py` | 60 个工具的类型化契约、参数校验、权限和授权预览 |
+| `catalog.py` | 62 个工具的类型化契约、参数校验、权限和授权预览 |
 | `approvals.py` | CLI / 工具箱确认、单次 RPC 请求、超时与断线处理 |
 | `tools.py` / `gis_tools.py` | 延迟导入 ArcPy、允许列表中的 GIS 操作，复制后编辑 |
 | `skills.py` + `skills/*.json` | 声明式多步技能包：加载即对照工具注册表校验，只被 `list_skills`/`read_skill` 只读返回给模型参考，不执行代码 |
@@ -39,7 +39,8 @@ ArcPyRuntime       InProcessRuntime       MockRuntime
 | `worker.py` | 结构化请求和结果文件协议；普通输出不参与协议解析 |
 | `cli.py` | 命令行入口、诊断、配置装配、退出码 |
 | `providers.py` | 独立连接、凭据引用、OpenAI 兼容协议、Claude Messages 与流式转换 |
-| `chat.py` | 会话、来源标记、跨连接历史转换、附件和用量聚合 |
+| `chat.py` | 会话、来源标记、跨连接历史转换、附件和用量聚合；未完成轮次以结构化"未执行"结果闭合历史，保证 API 序列合法且下一轮可见此前尝试 |
+| `memory.py` | 跨会话长期记忆存储（`workspace/memory.json`）与 `remember` 工具：进程内处理、精确去重、上限淘汰、首条消息注入；绝不写入密钥 |
 | `arcgis/ArcGISAgent.pyt` | Pro 内的地理处理工具入口，允许访问 CURRENT |
 
 ## 新增工具

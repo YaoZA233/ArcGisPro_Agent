@@ -208,7 +208,7 @@ class ApprovalTests(unittest.TestCase):
         self.assertIn('"status": "denied"', output.getvalue())
 
     def test_typed_catalog_filters_names_and_rejects_code_payloads(self):
-        self.assertEqual(len(TOOLS), 60)
+        self.assertEqual(len(TOOLS), 62)
         for name, args in (("read_rows", {"dataset": "x", "limit": 501}), ("project", {"dataset": "x", "target_wkid": True, "output_name": "out"}),
                            ("intersect", {"datasets": ["one"], "output_name": "out"}), ("set_field_value", {"dataset": "x", "field": "name", "expression": "exec()", "output_name": "out"}),
                            ("calculate_geometry", {"dataset": "x", "field_name": "area", "measurement": "AREA_GEODESIC", "unit": "METERS", "output_name": "out"})):

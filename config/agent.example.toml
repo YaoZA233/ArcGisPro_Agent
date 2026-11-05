@@ -11,6 +11,10 @@ max_steps = 8
 # Optional: a directory of user skill packs (*.json). Same-named packs override
 # the built-ins. Paths resolve from this file; omit to use built-in skills only.
 # skills_dir = "../my_skills"
+# Optional: directories the agent may search on its own with find_datasets
+# (recursive, including members inside .gdb/.gpkg). Paths resolve from this
+# file; omit and the agent must ask you for data locations. Max 16 entries.
+# data_roots = ["D:/gis_data", "E:/projects/data"]
 
 [model]
 # Initial connection; workspace/providers.json takes precedence after saving connections.

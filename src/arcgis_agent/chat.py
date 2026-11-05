@@ -12,9 +12,57 @@ from typing import Callable
 from .agent import Agent
 from .attachments import prepare_attachments
 from .deepseek import DeepSeekClient, DeepSeekPlanner
+from .memory import MemoryStore, memory_block
 from .runtime import Runtime
 
 PRIOR_IMAGE_BUDGET = 16 * 1024 * 1024
+
+NOT_EXECUTED_NOTES = {
+    "denied": "用户拒绝了本次调用，工具未执行。",
+    "cancelled": "任务已取消，本次调用未执行或已中断。",
+    "approval_expired": "授权等待超时，本次调用未执行。",
+    "approval_required": "当前入口未提供授权处理器，本次调用未执行。",
+    "blocked": "写操作未获授权，本次调用未执行。",
+    "step_limit": "已达本次工具调用上限，本次调用未执行。",
+    "failed": "工具调用失败，任务已停止。",
+}
+
+
+def _dangling_tool_calls(messages: list[dict]) -> list[str]:
+    """Call IDs from the trailing assistant tool_calls message that never got a tool reply."""
+    for index in range(len(messages) - 1, -1, -1):
+        message = messages[index]
+        if message.get("role") == "assistant" and message.get("tool_calls"):
+            replied = {item.get("tool_call_id") for item in messages[index + 1:] if item.get("role") == "tool"}
+            return [call.get("id") for call in message["tool_calls"]
+                    if isinstance(call.get("id"), str) and call.get("id") not in replied]
+        if message.get("role") == "user":
+            return []
+    return []
+
+
+def _closed_history(planner, result: dict) -> list[dict]:
+    """Close a turn so the API sequence stays valid: every tool_call gets a tool reply.
+
+    A failed tool's real observation is attached when the planner never consumed it;
+    calls that never ran get a structured not-executed result naming the reason.
+    """
+    messages = list(planner.messages)
+    dangling = _dangling_tool_calls(messages)
+    observations = result.get("observations") or []
+    seen = getattr(planner, "seen_observations", 0)
+    for position, call_id in enumerate(dangling):
+        if position == 0 and len(observations) > seen:
+            content = observations[-1]
+        else:
+            note = NOT_EXECUTED_NOTES.get(result.get("status"), "本次调用未执行。")
+            error = result.get("error")
+            if isinstance(error, dict) and isinstance(error.get("message"), str) and error["message"]:
+                note = error["message"]
+            content = {"ok": False, "error": {"type": "NotExecuted", "message": note}}
+        messages.append({"role": "tool", "tool_call_id": call_id,
+                         "content": json.dumps(content, ensure_ascii=False)})
+    return messages[1:]
 
 
 def usage_numbers(usage: dict) -> dict:
@@ -29,8 +77,9 @@ def usage_numbers(usage: dict) -> dict:
 
 
 class ChatSession:
-    def __init__(self, client: DeepSeekClient, runtime: Runtime, workspace: Path, max_steps: int = 8):
+    def __init__(self, client: DeepSeekClient, runtime: Runtime, workspace: Path, max_steps: int = 8, memory: MemoryStore | None = None):
         self.client, self.runtime, self.workspace, self.max_steps = client, runtime, workspace, max_steps
+        self.memory = memory if memory is not None else MemoryStore(Path(workspace) / "memory.json")
         self.history: list[dict] = []
         self.turns: list[dict] = []
         self.session_id = uuid.uuid4().hex
@@ -142,7 +191,11 @@ class ChatSession:
                     image_budget -= size
                 else:
                     message["content"][index] = {"type": "text", "text": "[前轮图片已分析；如需重新查看，请再次附加。]"}
-        text = prompt.strip() + ("\n[ArcGIS Pro 已保存工程路径：" + context[:4096] + "]" if context else "")
+        # Long-term memory rides on the first message of a session; later turns
+        # already carry it inside the retained history.
+        block = memory_block(self.memory) if not prior_history else ""
+        text = prompt.strip() + ("\n" + block if block else "") + \
+            ("\n[ArcGIS Pro 已保存工程路径：" + context[:4096] + "]" if context else "")
         user_content = [{"type": "text", "text": text}, *content] if content else text
         planner = DeepSeekPlanner(self.client, prior_history, user_content)
         usage = {"input": 0, "output": 0, "cache_hit": 0, "reasoning": 0}
@@ -176,8 +229,12 @@ class ChatSession:
         finally:
             if real_client:
                 self.client.on_event = None
-        if result["status"] == "completed":
-            self.history = planner.messages[1:]
+        # Every terminal state where the model actually acted keeps its exchange in
+        # history: the next turn must know what was attempted and why it did not
+        # complete. A turn aborted before any assistant output (e.g. an immediate
+        # cancel) has nothing to remember, so prior history is left untouched.
+        if any(message.get("role") == "assistant" for message in planner.messages):
+            self.history = _closed_history(planner, result)
             self.history_origin = self._origin()
             # Discard entire oldest user turns, never orphan tool messages.
             while len(self.history) > 100 or len(json.dumps(self._text_history(), ensure_ascii=False)) > 180000:
@@ -186,6 +243,7 @@ class ChatSession:
                     self.history.clear()
                     break
                 self.history = self.history[next_user:]
+        if result["status"] == "completed":
             reply = planner.final_text
         elif result["status"] == "blocked":
             reply = "执行已暂停：此任务需要创建 GIS 成果。请启用允许写入后重新发送任务。"

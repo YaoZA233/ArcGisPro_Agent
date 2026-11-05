@@ -9,7 +9,7 @@
 用自然语言驱动 ArcGIS Pro 做数据检查、矢量与栅格分析、制图出图。模型只负责规划，**每一次工具调用（包括只读）都先询问用户，允许后才执行**；成果落在带唯一 ID 的任务目录里，全程可回溯。提供命令行和 ArcGIS Pro 内嵌停靠面板两条入口，共用同一个 Agent、连接配置、工具及任务记录。
 
 - 支持 DeepSeek、Qwen、Kimi、GLM、OpenAI GPT、Anthropic Claude、xAI Grok 和自定义兼容接口 / 中转站；原有 DeepSeek 配置继续可用。
-- **60 个结构化工具** + **7 个多步技能包**，参数全部类型化校验。
+- **62 个结构化工具** + **7 个多步技能包**，参数全部类型化校验。
 - 无第三方 Python 依赖，不向 ArcGIS 默认环境安装包；离线测试只需系统 Python ≥ 3.11。
 
 | 章节 | 内容 |
@@ -17,7 +17,7 @@
 | [快速开始](#快速开始) | 三条命令跑通第一次对话 |
 | [在 ArcGIS Pro 里使用](#在-arcgis-pro-里使用) | 面板安装、授权卡片、附件、当前地图 |
 | [多供应商与中转站](#多供应商与中转站) | 连接管理、协议范围 |
-| [能力清单](#能力清单) | 60 个工具分组与参数约束 |
+| [能力清单](#能力清单) | 62 个工具分组与参数约束 |
 | [执行真实 GIS 任务](#执行真实-gis-任务) | JSON 计划与任务目录结构 |
 | [配置](#配置) | 本地覆盖、解释器发现、系统提示词 |
 | [仓库结构](#仓库结构) | 目录职责 |
@@ -35,7 +35,7 @@
 # 第一次使用：在隐藏输入的提示中输入 DeepSeek API Key
 .\scripts\agent.ps1 setup-key
 
-# 在终端启动对话；输入 /new 开始新对话，/quit 退出
+# 在终端启动对话；/new 新对话，/chats 列出历史会话，/resume 编号 恢复，/memory 查看长期记忆，/forget 序号 删除，/quit 退出
 .\scripts\agent.ps1 chat
 
 # 自动发现 ArcGIS Python，检查 ArcPy、许可证、实际版本
@@ -119,13 +119,14 @@ python -m unittest discover -s tests -v
 
 | 分组 | 工具 |
 | --- | --- |
-| 检查和读取 | `environment`、`project_info`、`describe`、`list_datasets`、`count`、`read_rows`、`verify_dataset` |
+| 检查和读取 | `environment`、`project_info`、`describe`、`list_datasets`、`find_datasets`、`count`、`read_rows`、`verify_dataset` |
 | 数据接入 | `import_table_points`、`convert_dataset` |
 | 要素与栅格分析 | `buffer`、`copy_features`、`clip`、`intersect`、`merge`、`dissolve`、`project`、`spatial_join`、`select_features`、`select_by_location`、`near_analysis`、`create_thiessen_polygons`、`clip_raster`、`union`、`erase`、`reshape_geometry`、`join_table`、`summarize_statistics` |
 | 表面与栅格分析 | `interpolate_surface`、`kernel_density`、`polygon_to_raster`、`terrain_derivatives`、`contour_lines`、`zonal_statistics`、`extract_by_mask`、`sample_raster_at_points`、`reclassify`、`hillshade`、`resample`、`project_raster`、`fill`、`flow_direction`、`flow_accumulation` |
 | 编辑副本与导出 | `add_field`、`set_field_value`、`delete_fields`、`calculate_geometry`、`repair_geometry`、`calculate_field`、`define_projection`、`export_table_csv`、`export_features` |
 | 制图与出图 | `build_layout`、`export_layout` |
 | 技能 | `list_skills`、`read_skill` |
+| 长期记忆 | `remember` |
 | Pro 面板宿主 | `map_context`、`get_selection`、`export_selection`、`add_to_map`、`set_layer_visibility` |
 
 覆盖范围包括：数据检查、复合属性筛选、按位置选择、邻近分析、泰森多边形、缓冲区、裁剪、相交、融合、投影、空间连接、栅格裁剪、属性与几何副本编辑、受限算术字段计算、结构化数据验收、CSV/GeoJSON/Shapefile 导出、表格与 GPKG/KML 数据接入、插值与密度、分区统计、地形与等高线、重分类与山体阴影、栅格重采样与投影、水文链（填洼 / 流向 / 汇流累积）、叠合与擦除、几何重塑、属性连接、布局出图与图片/PDF 导出、声明式技能包读取，以及 Pro 当前地图读取、添加图层和可见性控制。
@@ -176,6 +177,10 @@ workspace/runs/<UTC时间_唯一ID>/
 
 配置文件中的相对路径以配置文件所在目录为基准。CLI 和面板会自动读取仓库的 `config/local.toml`；`--config` 可为 CLI 指定其他文件。`config/local.toml` 已被 `.gitignore` 排除，需要共享默认值时改 `config/agent.example.toml`。没有配置文件时，CLI 的成果工作区默认为当前目录下的 `workspace`；面板启动后台进程时以仓库为当前目录。工具箱默认使用本仓库的 `workspace`，有 `config/local.toml` 时自动读取。
 
+`[agent] data_roots` 配置 Agent 可自主搜索的数据根目录（最多 16 个）：用户没给路径时，模型会用 `find_datasets` 在这些目录内按关键词递归查找数据（含 `.gdb`/`.gpkg` 内部成员），而不是反问路径；把你常用的 GIS 数据目录加进去即可。未配置时 `find_datasets` 返回明确提示，Agent 会退回向用户询问位置。
+
+**长期记忆**保存在 `workspace/memory.json`（不入库）：模型用 `remember` 工具记录稳定事实与用户偏好（常用数据目录、坐标系与单位习惯、称呼、成果交付偏好等），一条一个事实、精确去重、上限 200 条超限淘汰最旧；新会话第一条消息会自动注入既有记忆，与当前指令冲突时以当前指令为准。密钥、凭据与一次性任务细节绝不写入记忆。终端内用 `/memory` 查看全部记忆、`/forget 序号` 删除某条；`/chats` 列出历史会话、`/resume 编号`（可用短前缀）恢复某个会话继续对话。被拒绝、写入未授权、失败或取消的轮次也会保留在历史中（未执行的调用以结构化“未执行”结果闭合），因此下一轮模型能看到此前尝试过什么、为何没完成，而不是失忆重来。
+
 接入模型的系统提示词是内置的 [src/arcgis_agent/prompts/system.md](src/arcgis_agent/prompts/system.md)（模型的授权、工具使用、验收与报告规范，单一事实来源），直接编辑该文件即可调整模型行为；契约测试守护关键规则标记，大幅扩写请留意每轮请求的 token 成本。
 
 `ARCGIS_PRO_PYTHON` 可指定 ArcGIS Pro 克隆环境中的 `python.exe`，优先于配置。注册表发现只选择默认环境；使用克隆环境时请显式指定。`doctor` 对照 `expected_version` 检查精确版本；`run` 不额外执行版本探测。
@@ -186,13 +191,14 @@ workspace/runs/<UTC时间_唯一ID>/
 .
 ├── src/arcgis_agent/         # Agent 核心（纯 Python，无第三方依赖）
 │   ├── agent.py              # 规划-执行循环与步数上限
-│   ├── catalog.py            # 60 个工具的 schema、参数校验与 ArcPy 实现
+│   ├── catalog.py            # 62 个工具的 schema、参数校验与 ArcPy 实现
 │   ├── providers.py          # 供应商预设、连接配置存储与密钥读写
 │   ├── deepseek.py           # OpenAI 兼容协议的流式客户端
 │   ├── interfaces.py         # CLI / chat / providers / doctor 等命令入口
 │   ├── approvals.py          # 逐次授权处理器
 │   ├── runtime.py            # ArcPy 子进程 worker、超时与停滞看门狗
 │   ├── chat.py               # 会话、历史与用量统计
+│   ├── memory.py             # 长期记忆存储与 remember 工具
 │   ├── cartography.py        # 布局出图与图片/PDF 导出
 │   ├── selections.py         # Pro 选择集快照与 selection_token
 │   ├── skills.py             # 声明式技能包读取与校验
@@ -207,12 +213,12 @@ workspace/runs/<UTC时间_唯一ID>/
 ├── config/                   # agent.example.toml 模板（local.toml 不入库）
 ├── docs/                     # architecture / tools / providers / skills / validation
 │   └── notes/                # 历史排障笔记（过程留痕，非使用文档）
-└── workspace/                # 运行时产物，整体不入库（任务留痕、会话、连接配置、冒烟数据）
+└── workspace/                # 运行时产物，整体不入库（任务留痕、会话、长期记忆、连接配置、冒烟数据）
 ```
 
 ## 验证与测试
 
-229 项离线测试覆盖类型化工具参数、逐次授权、单次写入许可、拒绝/取消/断线、授权响应重放、有界循环、任务留痕、worker 协议异常与恢复、多模型协议与子进程协议、出图流程、出图范围单位与坐标系一致性、只读导出、技能包校验、工具事件步骤编号、worker 进度流与启动停滞看门狗。系统 Python 3.14 和 Pro Python 3.11 均已通过；[CI](.github/workflows/tests.yml) 配置相同版本矩阵，云端不依赖 ArcGIS。
+287 项离线测试覆盖类型化工具参数、逐次授权、单次写入许可、拒绝/取消/断线、授权响应重放、有界循环、任务留痕、worker 协议异常与恢复、多模型协议与子进程协议、出图流程、出图范围单位与坐标系一致性、只读导出、技能包校验、工具事件步骤编号、worker 进度流与启动停滞看门狗、自主数据发现、长期记忆增删去重与上限、未完成轮次的历史闭合、记忆注入与会话恢复。系统 Python 3.14 和 Pro Python 3.11 均已通过；[CI](.github/workflows/tests.yml) 配置相同版本矩阵，云端不依赖 ArcGIS。
 
 ```powershell
 .\scripts\test.ps1
@@ -246,7 +252,7 @@ workspace/runs/<UTC时间_唯一ID>/
 
 ## 当前边界与后续
 
-- 已有：多供应商流式对话、连接配置、附件、用量、历史会话、CLI、Pro 面板、60 个结构化工具、7 个声明式技能包、逐次用户授权、当前地图与选择集宿主桥接、制图出图与图片/PDF 导出和任务日志。
+- 已有：多供应商流式对话、连接配置、附件、用量、历史会话、CLI、Pro 面板、62 个结构化工具、7 个声明式技能包、逐次用户授权、当前地图与选择集宿主桥接、制图出图与图片/PDF 导出和任务日志。
 - 后续可扩展：更多分析工具、地图样式与分栏制图、业务级成果质量检查。
 - 表面与栅格分析需要 Spatial Analyst 扩展；执行前签出失败时整次调用失败并说明许可证状态，不返回部分结果。
 

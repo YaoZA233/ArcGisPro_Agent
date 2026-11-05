@@ -95,7 +95,9 @@ def main(argv: list[str] | None = None) -> int:
         else:
             plan = json.loads(args.plan.read_text(encoding="utf-8-sig"))
             steps = validate_plan(plan, settings.max_steps)
-            runtime = MockRuntime(settings.skills_dir) if args.mock else ArcPyRuntime(discover_python(settings.python), settings.timeout_seconds, settings.skills_dir)
+            from .memory import MemoryStore
+            memory = MemoryStore(settings.workspace / "memory.json")
+            runtime = MockRuntime(settings.skills_dir, memory) if args.mock else ArcPyRuntime(discover_python(settings.python), settings.timeout_seconds, settings.skills_dir, data_roots=settings.data_roots, memory=memory)
             from .approvals import terminal_approval
             result = Agent(runtime, settings.workspace, settings.max_steps).run(PlanPlanner(steps), allow_writes=args.allow_writes, approve=terminal_approval)
         print_json(result)

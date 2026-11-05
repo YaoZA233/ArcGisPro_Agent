@@ -30,10 +30,12 @@ class WorkerTerminated(RuntimeError):
 
 
 class ArcPyRuntime:
-    def __init__(self, python: Path, timeout: int = 180, skills_dir: Path | None = None, stall_seconds: int = 180):
+    def __init__(self, python: Path, timeout: int = 180, skills_dir: Path | None = None, stall_seconds: int = 180, data_roots=(), memory=None):
         self.python, self.timeout = python, timeout
         self.skills_dir = skills_dir
         self.stall_seconds = stall_seconds
+        self.data_roots = tuple(str(Path(item)) for item in data_roots)
+        self.memory = memory
         self.worker = Path(__file__).with_name("worker.py")
         self.cancel_event = None
 
@@ -119,6 +121,14 @@ class ArcPyRuntime:
                 return {"ok": True, "data": execute_skill_tool(name, arguments, self.skills_dir)}
             except (ValueError, OSError) as exc:
                 return {"ok": False, "error": {"type": type(exc).__name__, "message": str(exc)}}
+        from .memory import MEMORY_TOOLS, execute_memory_tool
+        if name in MEMORY_TOOLS:
+            # Memory writes are local agent state, handled in process like skill reads.
+            validate_call(name, arguments)
+            try:
+                return {"ok": True, "data": execute_memory_tool(name, arguments, self.memory)}
+            except (ValueError, OSError) as exc:
+                return {"ok": False, "error": {"type": type(exc).__name__, "message": str(exc)}}
         return self._call(name, arguments, output_dir, on_progress=on_progress)
 
     def _spawn(self, command: list[str], environment: dict):
@@ -167,7 +177,8 @@ class ArcPyRuntime:
         try:
             request, result = directory / "request.json", directory / "result.json"
             request.write_text(json.dumps({"tool": name, "arguments": arguments,
-                                           "output_dir": str(output_dir.resolve()), "selection_snapshot": selection_snapshot}, ensure_ascii=False), encoding="utf-8")
+                                           "output_dir": str(output_dir.resolve()), "selection_snapshot": selection_snapshot,
+                                           "data_roots": list(self.data_roots)}, ensure_ascii=False), encoding="utf-8")
             environment = self._worker_environment()
             command = [str(self.python), str(self.worker), str(request), str(result)]
             try:
@@ -204,12 +215,15 @@ class ArcPyRuntime:
 
 class InProcessRuntime:
     """For Pro's toolbox only: permits CURRENT and preserves the active session."""
-    def __init__(self, skills_dir: Path | None = None):
+    def __init__(self, skills_dir: Path | None = None, data_roots=(), memory=None):
         self.skills_dir = skills_dir
+        self.data_roots = tuple(str(Path(item)) for item in data_roots)
+        self.memory = memory
 
     def call(self, name: str, arguments: dict, output_dir: Path, on_progress=None) -> dict:
         try:
-            return {"ok": True, "data": execute(name, arguments, output_dir, allow_current=True, skills_dir=self.skills_dir)}
+            return {"ok": True, "data": execute(name, arguments, output_dir, allow_current=True, skills_dir=self.skills_dir,
+                                                data_roots=self.data_roots, memory=self.memory)}
         except Exception as exc:
             return {"ok": False, "error": {"type": type(exc).__name__, "message": str(exc)}}
 
@@ -222,8 +236,9 @@ class InProcessRuntime:
 
 class MockRuntime:
     """Explicit offline simulation; never pretends to create GIS deliverables."""
-    def __init__(self, skills_dir: Path | None = None):
+    def __init__(self, skills_dir: Path | None = None, memory=None):
         self.skills_dir = skills_dir
+        self.memory = memory
 
     def call(self, name: str, arguments: dict, output_dir: Path, on_progress=None) -> dict:
         validate_call(name, arguments)
@@ -231,6 +246,13 @@ class MockRuntime:
         if name in SKILL_TOOLS:
             # Skill packs are real local data, not simulated deliverables.
             return {"ok": True, "data": execute_skill_tool(name, arguments, self.skills_dir)}
+        from .memory import MEMORY_TOOLS, execute_memory_tool
+        if name in MEMORY_TOOLS:
+            # Memory is real local agent state, not a simulated GIS deliverable.
+            try:
+                return {"ok": True, "data": execute_memory_tool(name, arguments, self.memory)}
+            except (ValueError, OSError) as exc:
+                return {"ok": False, "error": {"type": type(exc).__name__, "message": str(exc)}}
         return {"ok": True, "simulated": True, "data": {"tool": name, "arguments": arguments,
                 "message": "Offline simulation only; no ArcPy execution or GIS output."}}
 

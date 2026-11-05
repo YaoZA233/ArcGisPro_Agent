@@ -9,7 +9,7 @@ A local GIS agent for **ArcGIS Pro 3.5.2 on Windows**. Current version: `0.1.0`.
 Drive ArcGIS Pro in natural language to inspect data, run vector and raster analysis, and produce layouts. The model only plans; **every tool call, including read-only ones, is confirmed by you first and executed only after approval**. Results land in a task directory with a unique ID, so each run is auditable end to end. Two entry points — a command line and a docked pane inside ArcGIS Pro — share one agent, one connection configuration, one tool set and one task record.
 
 - Providers: DeepSeek, Qwen, Kimi, GLM, OpenAI GPT, Anthropic Claude, xAI Grok, plus any OpenAI-compatible endpoint or relay. The original DeepSeek configuration keeps working.
-- **60 structured tools** and **7 multi-step skill packs**, with fully typed argument validation.
+- **62 structured tools** and **7 multi-step skill packs**, with fully typed argument validation.
 - No third-party Python dependencies, and nothing is installed into ArcGIS's default environment; offline tests only need system Python ≥ 3.11.
 
 | Section | Contents |
@@ -35,7 +35,7 @@ Open PowerShell in the repository root. Python **3.11 or newer** is required. Th
 # First use: paste your DeepSeek API key at the hidden prompt
 .\scripts\agent.ps1 setup-key
 
-# Start a conversation in the terminal; /new starts a fresh one, /quit exits
+# Start a conversation in the terminal; /new starts a fresh one, /chats lists saved sessions, /resume ID reopens one, /memory shows long-term memory, /forget N deletes an entry, /quit exits
 .\scripts\agent.ps1 chat
 
 # Discover the ArcGIS Python automatically; check ArcPy, licensing and the real version
@@ -119,13 +119,14 @@ Both the OpenAI Chat Completions-compatible protocol and the native Anthropic Me
 
 | Group | Tools |
 | --- | --- |
-| Inspect and read | `environment`、`project_info`、`describe`、`list_datasets`、`count`、`read_rows`、`verify_dataset` |
+| Inspect and read | `environment`、`project_info`、`describe`、`list_datasets`、`find_datasets`、`count`、`read_rows`、`verify_dataset` |
 | Data ingestion | `import_table_points`、`convert_dataset` |
 | Feature and raster analysis | `buffer`、`copy_features`、`clip`、`intersect`、`merge`、`dissolve`、`project`、`spatial_join`、`select_features`、`select_by_location`、`near_analysis`、`create_thiessen_polygons`、`clip_raster`、`union`、`erase`、`reshape_geometry`、`join_table`、`summarize_statistics` |
 | Surface and raster analysis | `interpolate_surface`、`kernel_density`、`polygon_to_raster`、`terrain_derivatives`、`contour_lines`、`zonal_statistics`、`extract_by_mask`、`sample_raster_at_points`、`reclassify`、`hillshade`、`resample`、`project_raster`、`fill`、`flow_direction`、`flow_accumulation` |
 | Copy editing and export | `add_field`、`set_field_value`、`delete_fields`、`calculate_geometry`、`repair_geometry`、`calculate_field`、`define_projection`、`export_table_csv`、`export_features` |
 | Cartography and layout | `build_layout`、`export_layout` |
 | Skills | `list_skills`、`read_skill` |
+| Long-term memory | `remember` |
 | Pro pane host | `map_context`、`get_selection`、`export_selection`、`add_to_map`、`set_layer_visibility` |
 
 Coverage includes: data inspection, compound attribute filtering, selection by location, proximity analysis, Thiessen polygons, buffering, clip, intersect, merge, dissolve, projection, spatial join, raster clip, copy editing of attributes and geometry, constrained arithmetic field calculation, structured dataset acceptance checks, CSV/GeoJSON/Shapefile export, table and GPKG/KML ingestion, interpolation and density, zonal statistics, terrain and contours, reclassification and hillshade, raster resampling and projection, hydrology chains (fill / flow direction / flow accumulation), overlay and erase, geometry reshape, attribute joins, layout construction with image/PDF export, declarative skill-pack reading, plus reading the current Pro map, adding layers and toggling visibility.
@@ -176,6 +177,10 @@ You can rely on automatic discovery, or copy `config/agent.example.toml` to `con
 
 Relative paths inside a config file resolve against that file's directory. The CLI and the pane read the repository's `config/local.toml` automatically; `--config` points the CLI at another file. `config/local.toml` is excluded by `.gitignore` — change `config/agent.example.toml` when a default should be shared. With no config file, the CLI's output workspace defaults to `workspace` under the current directory; the pane starts background processes with the repository as the current directory; the toolbox defaults to this repository's `workspace` and picks up `config/local.toml` when present.
 
+`[agent] data_roots` lists the directories the agent may search on its own (at most 16). Without a path from the user, the model calls `find_datasets` to search these roots recursively by keyword — including members inside `.gdb`/`.gpkg` — instead of asking you for a path; add the directories where your GIS data lives. When unconfigured, `find_datasets` returns an explicit notice and the agent falls back to asking where the data is.
+
+**Long-term memory** lives in `workspace/memory.json` (not committed): the model uses the `remember` tool to record stable facts and user preferences (common data directories, coordinate-system and unit habits, how to address you, deliverable preferences), one self-contained fact per entry, exact-deduplicated, capped at 200 entries with the oldest dropped past the cap. The first message of a new session automatically injects existing memory; current instructions win over it when they conflict. Secrets, credentials and one-off task details are never written to memory. In the terminal, `/memory` lists all entries and `/forget N` deletes one; `/chats` lists saved sessions and `/resume ID` (a short prefix works) reopens one to continue. Denied, write-blocked, failed and cancelled turns are also kept in history (unexecuted calls are closed with a structured "not executed" result), so the next turn sees what was attempted and why it stopped instead of losing the thread.
+
 The system prompt sent to the model is the bundled [src/arcgis_agent/prompts/system.md](src/arcgis_agent/prompts/system.md) — the single source of truth for approval rules, tool usage, acceptance criteria and reporting. Edit that file to change model behaviour; contract tests guard the key rule markers, and heavy expansions raise the token cost of every request.
 
 `ARCGIS_PRO_PYTHON` can point at a `python.exe` from an ArcGIS Pro cloned environment and takes precedence over configuration. Registry discovery only selects the default environment, so specify clones explicitly. `doctor` checks the exact version against `expected_version`; `run` performs no extra version probe.
@@ -186,13 +191,14 @@ The system prompt sent to the model is the bundled [src/arcgis_agent/prompts/sys
 .
 ├── src/arcgis_agent/         # agent core (pure Python, no third-party dependencies)
 │   ├── agent.py              # plan-execute loop and step ceiling
-│   ├── catalog.py            # schemas, argument validation and ArcPy implementations for 60 tools
+│   ├── catalog.py            # schemas, argument validation and ArcPy implementations for 62 tools
 │   ├── providers.py          # provider presets, connection storage and key read/write
 │   ├── deepseek.py           # streaming client for the OpenAI-compatible protocol
 │   ├── interfaces.py         # CLI / chat / providers / doctor command entry points
 │   ├── approvals.py          # per-step approval handlers
 │   ├── runtime.py            # ArcPy child-process worker, timeout and stall watchdog
 │   ├── chat.py               # sessions, history and usage accounting
+│   ├── memory.py             # long-term memory store and the remember tool
 │   ├── cartography.py        # layout construction and image/PDF export
 │   ├── selections.py         # Pro selection snapshots and selection_token
 │   ├── skills.py             # declarative skill-pack loading and validation
@@ -207,12 +213,12 @@ The system prompt sent to the model is the bundled [src/arcgis_agent/prompts/sys
 ├── config/                   # agent.example.toml template (local.toml is not committed)
 ├── docs/                     # architecture / tools / providers / skills / validation (Chinese)
 │   └── notes/                # historical debugging notes (process record, not usage docs)
-└── workspace/                # runtime output, fully ignored (task records, sessions, connections, smoke data)
+└── workspace/                # runtime output, fully ignored (task records, sessions, long-term memory, connections, smoke data)
 ```
 
 ## Verification and tests
 
-229 offline tests cover typed tool arguments, per-step approval, single-write permission, denial / cancellation / dropped connections, approval response replay, bounded loops, task recording, worker protocol faults and recovery, multi-model protocols and the subprocess protocol, layout workflows, extent units and coordinate-system consistency, read-only export, skill-pack validation, tool event step numbering, and worker progress streaming with the startup stall watchdog. Both system Python 3.14 and Pro Python 3.11 pass; [CI](.github/workflows/tests.yml) uses the same version matrix and never depends on ArcGIS in the cloud.
+287 offline tests cover typed tool arguments, per-step approval, single-write permission, denial / cancellation / dropped connections, approval response replay, bounded loops, task recording, worker protocol faults and recovery, multi-model protocols and the subprocess protocol, layout workflows, extent units and coordinate-system consistency, read-only export, skill-pack validation, tool event step numbering, worker progress streaming with the startup stall watchdog, autonomous data discovery, long-term memory add/remove/dedup/cap, history closure of unfinished turns, and memory injection with session resume. Both system Python 3.14 and Pro Python 3.11 pass; [CI](.github/workflows/tests.yml) uses the same version matrix and never depends on ArcGIS in the cloud.
 
 ```powershell
 .\scripts\test.ps1
@@ -246,7 +252,7 @@ Full text in [SECURITY.md](SECURITY.md). In short:
 
 ## Current limits and roadmap
 
-- Available today: multi-provider streaming chat, connection configuration, attachments, usage accounting, session history, CLI, the Pro pane, 60 structured tools, 7 declarative skill packs, per-call user approval, the current-map and selection host bridge, layout cartography with image/PDF export, and task logging.
+- Available today: multi-provider streaming chat, connection configuration, attachments, usage accounting, session history, CLI, the Pro pane, 62 structured tools, 7 declarative skill packs, per-call user approval, the current-map and selection host bridge, layout cartography with image/PDF export, and task logging.
 - Next: more analysis tools, map styles and multi-frame cartography, business-level output quality checks.
 - Surface and raster analysis needs the Spatial Analyst extension. If the license check-out fails before execution, the whole call fails and reports the license state — no partial results.
 

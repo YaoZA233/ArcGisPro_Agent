@@ -2,6 +2,25 @@
 
 按功能批次记录具体改动、涉及模块、验证结果和当前限制。项目版本当前保持 `0.1.0`，以下新增能力尚未单独发布版本。
 
+## 2026-11-06：上下文与长期记忆（失忆 bug 修复 + 终端会话恢复 + 跨会话记忆）
+
+- 问题：终端对话表现为"没有上下文、没有记忆"。三处根因：① `chat.py send()` 只在 `status == "completed"` 时把 `planner.messages` 落回 `self.history`，被拒绝 / 写入未授权 / 失败 / 取消 / 步数超限的轮次全部丢弃，下一轮模型看不到此前尝试；② 终端只有 `/new`，没有列出与恢复历史会话的入口（`workspace/chats/*.json` 早已持久化却无从取回）；③ 没有任何跨会话的长期记忆，用户偏好每次都要重讲。
+- 失忆修复（`chat.py`）：新增 `_dangling_tool_calls` 与 `_closed_history`——所有终态轮次都保留在历史中，未执行的调用以结构化 `{"ok": false, "error": {"type": "NotExecuted", ...}}` 工具消息闭合，保证 OpenAI 兼容协议"每个 assistant tool_calls 后必须跟对应 tool 应答"的序列合法性。失败轮次若 planner 尚未消费真实观察，则用真实 observation 闭合（保留错误原文），其余按 `NOT_EXECUTED_NOTES` 写明原因（拒绝/取消/超时/未授权写入/步数超限/失败）。仅当模型产生过 assistant 消息才提交历史：模型尚未输出即被取消的轮次不落历史（保留既有 `test_cancel_does_not_commit_partial_history` 语义）。
+- 长期记忆（新增 `memory.py`）：`MemoryStore` 无状态读写 `workspace/memory.json`（损坏/缺失降级为空），`add`（去空白、非空、≤500 字符、精确去重返回 `duplicate`、上限 200 条超限淘汰最旧、`.tmp`+`replace` 原子保存）、`remove`（1 基、类型与范围校验）、`clear`、`render`（最新优先占用约 6000 字符预算，截断标注）；`execute_memory_tool` 无 store 时抛 `ValueError`；`memory_block` 生成注入文本。新增 `remember` 工具（`catalog.py`，`writes=False`、非宿主、参数仅 `text`），在 `ArcPyRuntime`/`InProcessRuntime`/`MockRuntime` 三条链路均于进程内直接处理（不启动 ArcPy worker），`runtime.py` 与 `tools.py` 统一把 `(ValueError, OSError)` 收敛为结构化错误。
+- 会话恢复与记忆管理（`interfaces.py`）：新增模块级 `resolve_session_id`（完整 32 位十六进制直通；短前缀唯一匹配；空/无匹配/歧义报错）。终端新增 `/chats`（列出 `编号 | 更新时间 | 标题 | 用量`）、`/resume 编号`、`/memory`（编号列出全部记忆）、`/forget 序号`；帮助行与首行提示同步更新。
+- 接线：`create_session`（CLI chat 与面板 RPC 共用）构造共享 `MemoryStore(workspace/memory.json)` 注入 `ArcPyRuntime` 与 `ChatSession`；`cli.py run` 的 `MockRuntime`/`ArcPyRuntime` 同样接入；`ChatSession.__init__` 新增 `memory` 参数（默认 `workspace/memory.json`），首条消息（无 prior history）注入 `memory_block`，其后轮次不重复注入，`reset()` 后重新注入；`arcgis/ArcGISAgent.pyt` 经 `runtime(config)` 助手接入 `InProcessRuntime`。提示词 `prompts/system.md` 新增"## 长期记忆"一节（自动注入、`remember` 一条一个稳定事实、"绝不把密钥、凭据或一次性任务细节写入记忆"）。
+- 验证：新增 `tests/test_memory.py` 27 项（MemoryStore 增删去重上限与坏文件降级、render 预算截断、`remember` schema 契约与三条运行时链路含"ArcPyRuntime 用不存在的 python 也不启动 worker"、历史修复的 denied/blocked/failed/unknown-tool/多调用批次/completed 形态、记忆注入首轮命中后续不重复与 reset 重注入、模型经工具写入记忆、`resolve_session_id` 四种分支）；`test_system_prompt.py` 新增 3 个规则标记（长期记忆 / remember / 绝不把密钥）；`test_approvals.py` 工具总数契约 61→62；`test_chat.py` 的写入未授权用例改为"闭合并保留历史"新语义；`test_discovery.py` 的 InProcessRuntime 桩补 `memory` 形参。`PYTHONPATH=src python -m unittest discover -s tests` 全量 **287 项通过**（原 260 + 新增 27）。
+- 限制：本轮全部为离线验证，未消耗 API 用量做真实模型的端到端记忆注入/`remember` 对话观察，模型是否主动、恰当使用 `remember` 取决于提示词遵循度；`ArcPyRuntime` 的 `remember` 进程内路径已用"不存在的 python.exe"证明不启动 worker，但未在真实 Pro Python 下实跑（该工具不依赖 ArcPy）；面板经 `create_session` 自动获得记忆，但面板 UI 未新增记忆/会话管理控件（仅终端命令）；历史闭合改变了"写入未授权轮次回滚"的旧行为，属有意变更。
+
+## 2026-11-05：自主数据发现（find_datasets 工具 + data_roots 配置 + 提示词工作流）
+
+- 问题：用户问"某要素的属性表有什么字段"时，模型直接反问数据路径。根因是 `prompts/system.md` 明文要求"需要数据路径时向用户询问"，且工具白名单没有任何按名称搜索数据的能力（`list_datasets` 也要先给工作空间路径），模型无从自主定位。
+- 新增只读工具 `find_datasets`（`catalog.py` 注册、`gis_tools.py` 实现）：在 `[agent] data_roots` 配置的数据根目录内用 `arcpy.da.Walk` 递归搜索要素、表、栅格（含 `.gdb`/`.gpkg` 成员），按不区分大小写的关键词匹配数据集名或所属工作空间名，返回候选绝对路径、类型与工作空间；`root` 参数只能是配置根目录或其子目录（运行时校验，越界报错）；未配置 `data_roots` 或根目录不存在时返回带配置指引的错误；搜索限深 12 层，默认 50 项、上限 500，超限报告 `truncated`；空结果是合法结论。逐次授权模型不变，`writes=False`。
+- 配置链路：`config.py` `Settings` 新增 `data_roots`（最多 16 个非空路径，相对路径以配置文件为基准解析，类型不合法在加载时报错）；`ArcPyRuntime` 把 `data_roots` 写入 worker 的 `request.json`，`worker.py` 透传给 `tools.execute`，`InProcessRuntime` 直接传参；`cli.py run`、`interfaces.py create_session`（CLI chat 与面板 RPC 共用）和 `arcgis/ArcGISAgent.pyt` 三个入口全部接线；`agent.example.toml` 增加注释示例。搜索范围严格限定在配置根内，不引入任意路径遍历。
+- 提示词（`prompts/system.md`）：红线改为"数据位置不明时先自主查找，不要一上来向用户索要路径"；标准工作流插入第 2 步"自主定位数据"（Pro 面板先 `map_context` 读图层数据源，否则 `find_datasets` 关键词搜索；唯一候选直接探查，多个候选让用户选，搜空如实说明后再询问）；Pro 面板一节把 `map_context` 从"可先用"改为"先用、优先由此定位"。`hints.py` 的 error 000732 提示补充 `find_datasets` 自救路径。
+- 验证：新增 `tests/test_discovery.py` 20 项（假 ArcPy 上的关键词/工作空间匹配、limit 截断、root 越界与子目录收窄、未配置与根目录缺失报错、限深、坏文件降级；schema 契约；`Settings.load` 的 data_roots 解析与拒绝；worker 请求载荷、worker 透传、InProcessRuntime 转发三条接线）；`test_system_prompt.py` 新增 3 个规则标记；`test_approvals.py` 工具总数契约 60→61。`python -m unittest discover -s tests` 全量 **260 项通过**（原 240 + 新增 20）。真实 ArcPy 冒烟（Pro Python，只读，`workspace/smoke` 历史合成数据）：无关键词搜索正确枚举 `.gdb` 内部成员（`input.gdb` 的 boundary/points FeatureClass）、独立 `source.tif` 栅格与各 `results.gdb` 成果并报告 `truncated`；关键词无匹配返回合法空结果；`root=C:\Windows`（配置根之外）被拒绝并返回中文错误。本机 `config/local.toml` 已加 `data_roots = ["../workspace"]`（该文件不入库）。
+- 限制：`.gdb` 成员类型经 `Describe` 逐个获取，超大根目录下可能偏慢，靠限深与 limit 兜底；模型是否总是先搜索再询问取决于提示词遵循度，无法在离线测试中验证，需实际对话观察；`MockRuntime` 对该工具仍返回通用模拟结果；本次冒烟使用历史 fixture 数据，未新建合成数据。
+
 ## 2026-11-05：Pro 面板 Markdown 渲染补全
 
 - 问题复核：面板此前只在 `CompleteAssistant` 完成时把回复交给 `MessageRenderer.Create`，而旧渲染器仅识别围栏代码、`#{1,4}` 标题、`-`/`*` 项目符号、`> ` 引用与行内 `**粗体**`/`` `代码` ``。GIS 回复最常见的**表格、有序列表、链接、斜体、`---` 分隔线**都不在识别范围，原样落到段落分支，用户看到的仍是 `| ... |`、`1.`、`[文本](url)` 等 Markdown 源码——即“面板也是原生输出”的真实原因（流式生成期间 `liveAnswer` 同样是原始文本，完成后才替换）。

@@ -24,6 +24,12 @@ REQUIRED_MARKERS = (
     "不要输出密钥",                   # secret guard
     "selection_token",                # selection flow
     "export_layout",                  # two-step cartography
+    "自主定位数据",                   # autonomous data discovery step
+    "find_datasets",                  # discovery tool
+    "不要一上来向用户索要路径",       # never ask for paths before searching
+    "长期记忆",                       # long-term memory section
+    "remember",                       # memory recording tool
+    "绝不把密钥",                     # never persist secrets into memory
 )
 
 

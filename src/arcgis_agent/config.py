@@ -21,6 +21,7 @@ class Settings:
     max_tokens: int = 8192
     provider: str = "deepseek"
     skills_dir: Path | None = None
+    data_roots: tuple[Path, ...] = ()
 
     @classmethod
     def load(cls, path: Path | None = None) -> Settings:
@@ -50,6 +51,9 @@ class Settings:
             raise ValueError("max_tokens must be between 256 and 65536")
         if not isinstance(name, str) or not name.strip():
             raise ValueError("model name must be nonempty")
+        roots = agent.get("data_roots", [])
+        if not isinstance(roots, list) or len(roots) > 16 or any(not isinstance(item, str) or not item.strip() for item in roots):
+            raise ValueError("data_roots must be a list of at most 16 nonempty directory paths")
         from urllib.parse import urlparse
         parsed = urlparse(base_url)
         if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
@@ -58,7 +62,8 @@ class Settings:
                    resolve(executable) if executable else None,
                    arcgis.get("expected_version", "3.5.2"), timeout, steps,
                    name, base_url.rstrip("/"), model_timeout, thinking, max_tokens, model.get("provider", "deepseek"),
-                   resolve(agent["skills_dir"]) if agent.get("skills_dir") else None)
+                   resolve(agent["skills_dir"]) if agent.get("skills_dir") else None,
+                   tuple(resolve(item) for item in roots))
 
 
 def discover_python(explicit: Path | None = None) -> Path:

@@ -371,10 +371,66 @@ def export_selected_ids(arcpy, snapshot, output_name, folder):
                 arcpy.management.Delete(layer)
 
 
-def execute_extended(name, args, folder: Path, arcpy):
+MAX_SEARCH_DEPTH = 12
+
+
+def _resolve_search_roots(argument_root, data_roots):
+    """Autonomous discovery stays inside operator-configured roots; never scan arbitrary drives."""
+    roots = [Path(item).expanduser().resolve() for item in (data_roots or [])]
+    if not roots:
+        raise ValueError("未配置数据根目录：请在 config/local.toml 的 [agent] data_roots 中添加常用数据目录后再搜索。")
+    if not any(root.is_dir() for root in roots):
+        raise ValueError("配置的数据根目录均不存在：" + "; ".join(str(root) for root in roots))
+    if argument_root is None:
+        return roots
+    target = Path(argument_root).expanduser().resolve()
+    for root in roots:
+        if target == root or root in target.parents:
+            return [target]
+    raise ValueError(f"root 必须是配置的数据根目录或其子目录：{target}")
+
+
+def find_datasets(arcpy, args, data_roots):
+    roots = _resolve_search_roots(args.get("root"), data_roots)
+    keyword = args.get("keyword")
+    fragment = keyword.casefold() if keyword else None
+    limit = args.get("limit", 50)
+    matches, truncated = [], False
+    for root in roots:
+        if not root.is_dir():
+            continue
+        base_depth = len(root.parts)
+        for directory, dirnames, filenames in arcpy.da.Walk(str(root), datatype=["FeatureClass", "Table", "RasterDataset"]):
+            current = Path(directory)
+            if len(current.parts) - base_depth >= MAX_SEARCH_DEPTH:
+                dirnames[:] = []
+            workspace = current.name.casefold()
+            for filename in sorted(filenames):
+                if fragment is not None and fragment not in filename.casefold() and fragment not in workspace:
+                    continue
+                path = str(current / filename)
+                try:
+                    data_type = arcpy.Describe(path).dataType
+                except (RuntimeError, OSError, ValueError):
+                    data_type = None
+                matches.append({"name": filename, "path": path, "workspace": str(current), "data_type": data_type})
+                if len(matches) >= limit:
+                    truncated = True
+                    break
+            if truncated:
+                break
+        if truncated:
+            break
+    return {"matches": matches, "count": len(matches), "truncated": truncated,
+            "keyword": keyword, "searched_roots": [str(root) for root in roots]}
+
+
+def execute_extended(name, args, folder: Path, arcpy, data_roots=None):
     # Deliberately do not inherit Pro selections, extents, snap settings, cell size, mask or output SR.
     with arcpy.EnvManager(overwriteOutput=False, addOutputsToMap=False, extent=None, outputCoordinateSystem=None,
                           cellSize=None, mask=None, snapRaster=None):
+        if name == "find_datasets":
+            return find_datasets(arcpy, args, data_roots)
         if name == "list_datasets":
             check_dataset(arcpy, args["workspace"])
             limit = args.get("limit", 100)

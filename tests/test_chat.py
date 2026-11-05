@@ -65,13 +65,19 @@ class ChatTests(unittest.TestCase):
         self.assertEqual(result["status"], "completed")
         self.assertEqual([m["tool_call_id"] for m in client.requests[1] if m["role"] == "tool"], ["a", "b"])
 
-    def test_write_blocked_and_history_rolled_back(self):
+    def test_write_blocked_turn_is_closed_and_kept(self):
         client = FakeClient([assistant(calls=[call("buffer", {"dataset": "x", "distance": "1 Meters", "output_name": "out"})])])
         session = ChatSession(client, MockRuntime(), self.root)
         result = session.send("缓冲", approve=fixture_approval)
         self.assertEqual(result["status"], "blocked")
         self.assertIn("启用", result["reply"])
-        self.assertEqual(session.history, [])
+        # A blocked turn no longer rolls history back: the dangling write call is
+        # closed with a synthesized "not executed" tool message so the API sequence
+        # stays valid and the model can see why nothing happened next turn.
+        self.assertEqual([m["role"] for m in session.history], ["user", "assistant", "tool"])
+        content = json.loads(session.history[-1]["content"])
+        self.assertFalse(content["ok"])
+        self.assertIn("写操作", content["error"]["message"])
 
     def test_unknown_model_tool_is_rejected(self):
         client = FakeClient([assistant(calls=[call("execute_python", {"code": "x"})])])

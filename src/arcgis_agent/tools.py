@@ -37,7 +37,7 @@ def _layout_record(layout):
             "page_units": layout.pageUnits, "element_count": len(layout.listElements())}
 
 
-def execute(name: str, arguments: dict, output_dir: Path, *, allow_current: bool = False, selection_snapshot=None, skills_dir: Path | None = None) -> dict:
+def execute(name: str, arguments: dict, output_dir: Path, *, allow_current: bool = False, selection_snapshot=None, skills_dir: Path | None = None, data_roots=None, memory=None) -> dict:
     """Allowlisted ArcPy calls only. No eval/exec, generated Python, or shell tools."""
     import sys
 
@@ -46,6 +46,10 @@ def execute(name: str, arguments: dict, output_dir: Path, *, allow_current: bool
     if name in SKILL_TOOLS:
         # Pure local reads; handled before the arcpy import so they work offline.
         return execute_skill_tool(name, arguments, skills_dir)
+    from .memory import MEMORY_TOOLS, execute_memory_tool
+    if name in MEMORY_TOOLS:
+        # Pure local agent state; handled before the arcpy import so it works offline.
+        return execute_memory_tool(name, arguments, memory)
     if name == "export_selection":
         from .selections import validate_snapshot
         selection_snapshot = validate_snapshot(selection_snapshot, arguments["selection_token"])
@@ -91,7 +95,7 @@ def execute(name: str, arguments: dict, output_dir: Path, *, allow_current: bool
             del project
     if name not in ("describe", "buffer"):
         from .gis_tools import execute_extended
-        return execute_extended(name, arguments, output_dir, arcpy)
+        return execute_extended(name, arguments, output_dir, arcpy, data_roots)
     dataset = arguments["dataset"]
     if not arcpy.Exists(dataset):
         raise ValueError(f"GIS dataset does not exist: {dataset}")

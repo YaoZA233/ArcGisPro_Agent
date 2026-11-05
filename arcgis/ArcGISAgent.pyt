@@ -12,6 +12,7 @@ if str(REPO / "src") not in sys.path:
 
 from arcgis_agent.agent import Agent, PlanPlanner, validate_plan
 from arcgis_agent.config import Settings
+from arcgis_agent.memory import MemoryStore
 from arcgis_agent.runtime import InProcessRuntime
 from arcgis_agent.approvals import toolbox_approval
 
@@ -19,6 +20,10 @@ from arcgis_agent.approvals import toolbox_approval
 def settings():
     local = REPO / "config/local.toml"
     return Settings.load(local) if local.is_file() else Settings(workspace=REPO / "workspace")
+
+
+def runtime(config):
+    return InProcessRuntime(config.skills_dir, config.data_roots, MemoryStore(config.workspace / "memory.json"))
 
 
 class Toolbox:
@@ -39,7 +44,7 @@ class InspectCurrentProject:
 
     def execute(self, parameters, messages):
         config = settings()
-        result = Agent(InProcessRuntime(config.skills_dir), config.workspace, config.max_steps).run(
+        result = Agent(runtime(config), config.workspace, config.max_steps).run(
             PlanPlanner([{"tool": "project_info", "arguments": {"project": "CURRENT"}}]), approve=toolbox_approval)
         arcpy.AddMessage(json.dumps(result, ensure_ascii=False, indent=2))
         if result["status"] != "completed":
@@ -65,7 +70,7 @@ class ExecutePlan:
         config = settings()
         plan = json.loads(Path(parameters[0].valueAsText).read_text(encoding="utf-8-sig"))
         steps = validate_plan(plan, config.max_steps)
-        result = Agent(InProcessRuntime(config.skills_dir), config.workspace, config.max_steps).run(
+        result = Agent(runtime(config), config.workspace, config.max_steps).run(
             PlanPlanner(steps), allow_writes=bool(parameters[1].value), approve=toolbox_approval)
         arcpy.AddMessage(json.dumps(result, ensure_ascii=False, indent=2))
         if result["status"] != "completed":

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import getpass
 import json
+import re
 import sys
 import threading
 import time
@@ -11,6 +12,7 @@ from .chat import ChatSession
 from .config import Settings, discover_python
 from .deepseek import DeepSeekClient, DeepSeekError, read_api_key
 from .mdrender import render_markdown, supports_color, terminal_width
+from .memory import MemoryStore
 from .runtime import ArcPyRuntime, HostBridgeRuntime
 from .tools import TOOLS
 from .approvals import RequestBroker, terminal_approval
@@ -33,10 +35,28 @@ def create_session(settings: Settings) -> ChatSession:
                 client.configure(options)
         except (ValueError, TypeError):
             pass
-    runtime = ArcPyRuntime(discover_python(settings.python), settings.timeout_seconds, settings.skills_dir)
-    session = ChatSession(client, runtime, settings.workspace, settings.max_steps)
+    memory = MemoryStore(settings.workspace / "memory.json")
+    runtime = ArcPyRuntime(discover_python(settings.python), settings.timeout_seconds, settings.skills_dir,
+                           data_roots=settings.data_roots, memory=memory)
+    session = ChatSession(client, runtime, settings.workspace, settings.max_steps, memory=memory)
     session.providers = store
     return session
+
+
+def resolve_session_id(prefix: str, chats: list[dict]) -> str:
+    """Match a full session id or an unambiguous prefix of one saved chat."""
+    prefix = (prefix or "").strip().lower()
+    if not prefix:
+        raise ValueError("请提供会话编号；用 /chats 查看列表。")
+    if re.fullmatch(r"[0-9a-f]{32}", prefix):
+        return prefix
+    matches = [chat["session_id"] for chat in chats
+               if isinstance(chat.get("session_id"), str) and chat["session_id"].startswith(prefix)]
+    if len(matches) == 1:
+        return matches[0]
+    if not matches:
+        raise ValueError("没有匹配的会话编号；用 /chats 查看列表。")
+    raise ValueError("编号前缀匹配到多个会话，请多输入几位。")
 
 
 def setup_key(provider: str = "deepseek") -> int:
@@ -90,10 +110,11 @@ def interactive(settings: Settings, allow_writes: bool) -> int:
             pass
     color = supports_color()
     width = terminal_width()
-    print(f"ArcGIS Agent · {session.providers.active} / {session.client.model} | 输入 /new 新对话，/quit 退出。")
+    print(f"ArcGIS Agent · {session.providers.active} / {session.client.model} | 输入 /new 新对话，/chats 历史会话，/quit 退出。")
     print("每次工具调用均需单独确认；写入可在本次提示中授权。" + (" 已预先启用写入能力。" if allow_writes else ""))
     print("/model 名称 切换模型；/think off|low|high|max；/attach 路径 附加文件；/status 查看设置")
     print("/providers 列出连接；/provider 连接ID 切换；/models 获取账户模型列表")
+    print("/resume 编号 恢复历史会话；/memory 查看长期记忆；/forget 序号 删除记忆")
     attachments = []
     while True:
         try:
@@ -106,6 +127,41 @@ def interactive(settings: Settings, allow_writes: bool) -> int:
         if prompt == "/new":
             session.reset()
             print("已开始新对话。")
+            continue
+        if prompt == "/chats":
+            chats = session.list_chats()
+            if not chats:
+                print("暂无历史会话。")
+            else:
+                for chat in chats:
+                    usage = chat.get("total_usage") or {}
+                    print(f"  {chat['session_id'][:8]} | {chat.get('updated', '')[:16].replace('T', ' ')} | "
+                          f"{chat.get('title', '')} | 输入 {usage.get('input', 0)} / 输出 {usage.get('output', 0)} tokens")
+                print("用 /resume 编号 恢复会话（编号可只输前几位）。")
+            continue
+        if prompt.startswith("/resume"):
+            try:
+                full = resolve_session_id(prompt[7:].strip(), session.list_chats())
+                loaded = session.load(full)
+                print(f"已恢复会话 {full[:8]}：{len(loaded['turns'])} 轮对话。继续提问即可；/new 开始新对话。")
+            except (ValueError, OSError, KeyError, json.JSONDecodeError) as exc:
+                print("提示：" + str(exc))
+            continue
+        if prompt == "/memory":
+            entries = session.memory.entries()
+            if not entries:
+                print("暂无长期记忆；对话中模型可经你授权后用 remember 工具记录。")
+            else:
+                for number, item in enumerate(entries, 1):
+                    print(f"  {number}. {item['text']}")
+                print(f"用 /forget 序号 删除某条；完整文件在 {session.memory.path}。")
+            continue
+        if prompt.startswith("/forget "):
+            try:
+                removed = session.memory.remove(int(prompt[8:].strip()))
+                print(f"已删除记忆：{removed['removed']}")
+            except (ValueError, OSError) as exc:
+                print("提示：" + str(exc))
             continue
         if prompt == "/providers":
             print(json.dumps(session.providers.public(), ensure_ascii=False, indent=2))
