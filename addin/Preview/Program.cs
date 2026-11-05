@@ -20,6 +20,43 @@ internal static class Program
         bool captureSettings = args.Length >= 2 && args[0] == "--capture-settings";
         bool captureSelection = args.Length >= 2 && args[0] == "--capture-selection";
         bool captureApproval = args.Length >= 2 && (args[0] == "--capture-approval" || captureSelection);
+        if (args.Length >= 2 && args[0] == "--capture-markdown")
+        {
+            const string sample =
+                "# 流域分析报告\n\n" +
+                "对 **DEM.tif** 完成处理，结果*可靠*，代码见 `Fill()`。\n\n" +
+                "## 关键指标\n\n" +
+                "| 指标 | 数值 | 单位 |\n" +
+                "| --- | --- | --- |\n" +
+                "| 流域面积 | 1234.5 | 平方公里 |\n" +
+                "| 河网密度 | 0.87 | km/km² |\n\n" +
+                "### 处理步骤\n\n" +
+                "1. 填充洼地\n" +
+                "2. 计算流向 [Esri 文档](https://pro.arcgis.com)\n\n" +
+                "- 输出目录\n" +
+                "  - 嵌套子项\n" +
+                "  - 另一个子项\n\n" +
+                "> 注意：写入已启用，成果保存在任务目录。\n\n" +
+                "```python\nimport arcpy\narcpy.sa.Fill(\"dem\")\n```\n\n" +
+                "---\n\n完成。";
+            window.Loaded += (_, _) =>
+            {
+                var host = new Grid { Width = 430, Background = (Brush)view.FindResource("Surface") };
+                host.Children.Add(MessageRenderer.Create(sample, view));
+                window.Content = host;
+                host.Measure(new Size(430, double.PositiveInfinity));
+                double height = double.IsInfinity(host.DesiredSize.Height) ? 900 : host.DesiredSize.Height;
+                host.Arrange(new Rect(0, 0, 430, height));
+                host.UpdateLayout();
+                var target = new RenderTargetBitmap(430, Math.Max(1, (int)Math.Ceiling(height)), 96, 96, PixelFormats.Pbgra32);
+                target.Render(host);
+                var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(target));
+                using (var file = File.Create(args[1])) encoder.Save(file);
+                app.Shutdown(0);
+            };
+            app.Run(window);
+            return;
+        }
         if (captureSettings || captureApproval)
         {
             window.ShowActivated = false; window.ShowInTaskbar = false;

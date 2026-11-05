@@ -10,6 +10,7 @@ from pathlib import Path
 from .chat import ChatSession
 from .config import Settings, discover_python
 from .deepseek import DeepSeekClient, DeepSeekError, read_api_key
+from .mdrender import render_markdown, supports_color, terminal_width
 from .runtime import ArcPyRuntime, HostBridgeRuntime
 from .tools import TOOLS
 from .approvals import RequestBroker, terminal_approval
@@ -81,6 +82,14 @@ def provider_state(session) -> dict:
 
 def interactive(settings: Settings, allow_writes: bool) -> int:
     session = create_session(settings)
+    # Never let a GBK/ASCII console codec crash the reply; degrade to '?' instead.
+    if hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        except (ValueError, OSError):
+            pass
+    color = supports_color()
+    width = terminal_width()
     print(f"ArcGIS Agent · {session.providers.active} / {session.client.model} | 输入 /new 新对话，/quit 退出。")
     print("每次工具调用均需单独确认；写入可在本次提示中授权。" + (" 已预先启用写入能力。" if allow_writes else ""))
     print("/model 名称 切换模型；/think off|low|high|max；/attach 路径 附加文件；/status 查看设置")
@@ -140,6 +149,9 @@ def interactive(settings: Settings, allow_writes: bool) -> int:
         if not prompt:
             continue
         stream_state = {"kind": ""}
+        content_buffer: list[str] = []
+        progress = {"started": False}
+
         def event(record: dict) -> None:
             kind = record["event"]
             if kind == "tool_requested":
@@ -157,10 +169,17 @@ def interactive(settings: Settings, allow_writes: bool) -> int:
                 print(f"    [worker] {record.get('text', '')}", flush=True)
                 stream_state["kind"] = "tool"
             elif kind == "content_delta":
-                if stream_state["kind"] != "content":
-                    print("\nAgent > ", end="", flush=True)
-                    stream_state["kind"] = "content"
-                print(record["text"], end="", flush=True)
+                # Buffer the reply instead of echoing raw Markdown; the finished
+                # text is rendered once below so the user never reads raw '#/**'.
+                content_buffer.append(record.get("text", ""))
+                stream_state["kind"] = "content"
+                if color:
+                    if not progress["started"]:
+                        sys.stdout.write("\n")  # close any dangling reasoning line
+                        progress["started"] = True
+                    count = sum(len(piece) for piece in content_buffer)
+                    sys.stdout.write(f"\r\033[2m  [生成中… {count} 字]\033[0m\033[K")
+                    sys.stdout.flush()
             elif kind == "reasoning_delta":
                 if stream_state["kind"] != "reasoning":
                     print("\n  [模型推理] ", end="", flush=True)
@@ -174,8 +193,12 @@ def interactive(settings: Settings, allow_writes: bool) -> int:
             print("\n提示：" + str(exc))
             continue
         attachments.clear()
-        if result["status"] != "completed" or stream_state["kind"] != "content":
-            print("\nAgent > " + result["reply"])
+        if progress["started"]:
+            sys.stdout.write("\r\033[K" if color else "\r")  # erase the live counter
+            sys.stdout.flush()
+        print()
+        print("\033[1;32mAgent >\033[0m" if color else "Agent >")
+        print(render_markdown(result["reply"], color=color, width=width))
         print(f"  [用量] 输入 {result['usage']['input']} / 输出 {result['usage']['output']} tokens；耗时 {result['elapsed_seconds']}s")
         print("  [任务] " + result["status"] + " | " + result["run_dir"])
 

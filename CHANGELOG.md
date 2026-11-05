@@ -2,6 +2,24 @@
 
 按功能批次记录具体改动、涉及模块、验证结果和当前限制。项目版本当前保持 `0.1.0`，以下新增能力尚未单独发布版本。
 
+## 2026-11-05：Pro 面板 Markdown 渲染补全
+
+- 问题复核：面板此前只在 `CompleteAssistant` 完成时把回复交给 `MessageRenderer.Create`，而旧渲染器仅识别围栏代码、`#{1,4}` 标题、`-`/`*` 项目符号、`> ` 引用与行内 `**粗体**`/`` `代码` ``。GIS 回复最常见的**表格、有序列表、链接、斜体、`---` 分隔线**都不在识别范围，原样落到段落分支，用户看到的仍是 `| ... |`、`1.`、`[文本](url)` 等 Markdown 源码——即“面板也是原生输出”的真实原因（流式生成期间 `liveAnswer` 同样是原始文本，完成后才替换）。
+- 重写 `addin/ArcGISAgent/MessageRenderer.cs`：补齐 H1–H6 标题（H1/H2 加下划线与强调色）、有序/无序列表（按缩进层级悬挂）、表格、链接（渲染为“强调色文本 + 灰色 URL”，不做超链接导航以保持只读）、斜体与 `__粗体__`、`---` 分隔线；行内解析统一到一个 `AddInline`，围栏代码块带语言标签。
+- 表格实现要点：用**单个共享 `Grid` + `Auto` 列**保证跨行列对齐；此前用 `Star` 列在 `FlowDocument` 的 `BlockUIContainer` 内会因可用宽度为无限而塌缩成一列一个字，改为 `Auto` 后按内容自然排布，表头加粗强调色、单元格细线分隔、左对齐不拉伸。CJK 全角字符在 WPF 下按真实字形宽度排版，无需额外宽度补偿。
+- 新增验证入口：`addin/Preview/Program.cs` 增加 `--capture-markdown` 模式，用一段含标题/表格/有序列表/嵌套项目符号/引用/围栏代码/链接/分隔线的样例调用 `MessageRenderer.Create` 并离屏渲染为 PNG，纳入既有界面验证工具集（仅 Preview 工程，不进入随 Pro 发布的 addin）。
+- 验证：`dotnet build addin/Preview -c Release` **0 警告 0 错误**；`--capture-markdown` 渲染成功，人工核对表格列对齐、列表缩进、引用与代码块、链接与分隔线均正确显示（`workspace/md-preview.png`，`workspace/` 已被 `.gitignore` 忽略，不入库）。终端渲染改动不受影响，`python -m unittest discover -s tests` 仍 240 项通过。
+- 限制：流式生成期间仍显示原始文本，完成后才切换为渲染视图（未做逐 token 增量渲染）；表格单元格不支持换行内多段与合并单元格；链接为纯展示不可点击；未覆盖图片、删除线、任务列表等语法。真实 Pro 面板内的显示效果需在 ArcGIS Pro 运行时目视确认，本次以独立 Preview 渲染为准。
+
+## 2026-11-05：终端 chat 回复改为 Markdown 渲染
+
+- 问题：`agent chat` 终端交互此前把模型的 `content_delta` 原样 `print` 到 stdout，用户看到的是 `#`、`**`、反引号、`|` 表格等未渲染的 Markdown 源码；而 Pro 面板（`addin/ArcGISAgent/MessageRenderer.cs`）早已渲染，只有终端这条路缺失。
+- 新增 `src/arcgis_agent/mdrender.py`：零第三方依赖的 Markdown → 终端渲染器（仓库规则禁止向 Esri 基础 Python 环境安装包，故不引入 `rich`）。支持标题（H1/H2 带下划线）、粗体/斜体、行内代码、围栏代码块（带语言标签与边框）、有序/无序列表（含缩进嵌套）、引用块、分隔线、链接（渲染为“文本 (URL)”）、以及表格。
+- 颜色/降级：TTY 且未设置 `NO_COLOR`/`TERM=dumb`/`ARCGIS_AGENT_NO_COLOR` 时输出 ANSI 彩色；非 TTY（重定向、离线测试）自动降级为去除 Markdown 语法的纯文本，表格用 ASCII `+|-`，不产生 ANSI。CJK 字符按 `unicodedata.east_asian_width` 计双宽，表格与对齐不再错位。Windows 传统控制台尽力启用 VT（`os.system("")`）。
+- `src/arcgis_agent/interfaces.py` `interactive()`：`content_delta` 改为缓冲并在单行内滚动显示 `[生成中… N 字]` 进度（不再回显原始 Markdown），回合结束后统一渲染 `result["reply"]`；stdout 重配置为 UTF-8 + `errors="replace"`，避免 GBK 控制台遇到 `²`、`━` 等字符崩溃。推理流（`[模型推理]`）与工具事件输出维持原样，本次不改。
+- 验证：新增 `tests/test_mdrender.py`（11 项，覆盖标题去标记、行内语法剥离、链接、代码块保真、列表项目符号、CJK 表格等宽对齐、纯文本降级、无 TTY 时 `supports_color` 为假）；`python -m unittest discover -s tests` 全量 **240 项通过**（原 229 + 新增 11）；`py_compile` 通过。
+- 限制：渲染为轻量正则实现，非完整 CommonMark——不支持图片语法、嵌套有序列表的复杂续行、跨行折断的行内标记（`**` 恰好断在换行处会原样显示）；表格不支持单元格内换行与合并。仅在真实终端交互路径验证渲染效果，未接入自动化 TTY 截图。Pro 面板渲染逻辑未改动。
+
 ## 2026-11-05：README 英文版与中英切换
 
 - 新增 `README.en.md`：中文 README 的完整英文对应版，同样 12 个章节、265 行，含快速开始、Pro 面板用法、多供应商、60 工具分组、JSON 计划与任务目录、配置、仓库结构、229 项离线测试与 ArcPy 冒烟、安全隐私、边界与后续、贡献、MIT 许可。
