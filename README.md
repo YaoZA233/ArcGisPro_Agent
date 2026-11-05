@@ -1,5 +1,7 @@
 # ArcGIS Pro Agent
 
+[**简体中文**](README.md) | [English](README.en.md)
+
 面向 **ArcGIS Pro 3.5.2 / Windows** 的本地 GIS Agent。当前版本 `0.1.0`。
 
 ![license](https://img.shields.io/badge/license-MIT-green) ![python](https://img.shields.io/badge/python-3.11%20%7C%203.14-blue) ![ArcGIS%20Pro](https://img.shields.io/badge/ArcGIS%20Pro-3.5.2-orange)

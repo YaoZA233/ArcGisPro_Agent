@@ -2,6 +2,14 @@
 
 按功能批次记录具体改动、涉及模块、验证结果和当前限制。项目版本当前保持 `0.1.0`，以下新增能力尚未单独发布版本。
 
+## 2026-11-05：README 英文版与中英切换
+
+- 新增 `README.en.md`：中文 README 的完整英文对应版，同样 12 个章节、265 行，含快速开始、Pro 面板用法、多供应商、60 工具分组、JSON 计划与任务目录、配置、仓库结构、229 项离线测试与 ArcPy 冒烟、安全隐私、边界与后续、贡献、MIT 许可。
+- Pro 面板的界面词按 `addin/ArcGISAgent/Config.daml` 的实际 caption 书写（功能区 `GIS Agent` 为英文，按钮 `打开 Agent`、组名 `智能助手` 当前为中文），英文版保留中文原文并附英文释义，避免读者按翻译找不到按钮。
+- 两份 README 顶部互加语言切换行；`docs/`、`CHANGELOG.md` 目前只有中文，英文版在相应位置注明。
+- 验证：两份 README 的相对文件链接与页内锚点扫描均为 0 处失效；新增英文文件按同一规则做密钥与本机身份扫描，无凭据、无用户名；`./scripts/test.ps1` 229 项离线测试保持通过。
+- 限制：本次为文档改动，未触及任何运行时代码；`docs/` 各专题文档尚未翻译。
+
 ## 2026-11-05：仓库整理与开源发布准备
 
 - 根目录 6 份 2026-11-05 排障过程稿（`CRITICAL_FIX_COMPLETE.md`、`EMERGENCY_DIAGNOSIS.md`、`FINAL_FIX_PYTHON_PATH.md`、`NEXT_STEPS.md`、`QUICK_START.md`、`USE_CLI_INSTEAD.md`）原样移入 `docs/notes/2026-11-05-tool-hang/`，新增 `docs/notes/README.md` 说明这些是过程留痕、结论以本日志与 `docs/fix-tool-hang-issue.md` 的更正标注为准。
