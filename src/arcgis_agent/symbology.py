@@ -11,6 +11,8 @@
 """
 from __future__ import annotations
 
+import math
+
 KINDS = ("SEQUENTIAL", "QUALITATIVE", "TERRAIN", "BASE")
 CLASSIFY_METHODS = ("EQUAL_INTERVAL", "QUANTILE")
 MIN_CLASSES, MAX_CLASSES = 3, 7
@@ -113,3 +115,65 @@ def land_use_color(value):
         if any(keyword.lower() in text for keyword in keywords):
             return color, True
     return PALETTES["LAND_USE"]["fallback"], False
+
+
+def build_classes(values, classes, method):
+    """把数值列表变成分级上界。返回的 bounds 长度恒等于 classes。
+
+    末级强制等于最大值：等间距的浮点累加可能差最后一个小数位，那样最大的那个要素
+    会掉出所有分级，渲成空白且不报错。
+    """
+    if not values:
+        raise ValueError("该字段没有有效数值，无法分级；请先用 describe 与 read_rows 检查字段内容。")
+    low, high = min(values), max(values)
+    if high == low:
+        raise ValueError(f"该字段取值全部相同（{low:g}），无法分级；请换一个有区分度的字段，"
+                         f"或改用 BASE 色板出示意图。")
+    if method == "EQUAL_INTERVAL":
+        step = (high - low) / classes
+        bounds = [low + step * (index + 1) for index in range(classes)]
+    else:
+        ordered = sorted(values)
+        total = len(ordered)
+        bounds = [ordered[min(total - 1, max(0, math.ceil((index + 1) * total / classes) - 1))]
+                  for index in range(classes)]
+    bounds[-1] = high
+    return {"minimum": low, "maximum": high, "bounds": bounds}
+
+
+def collect_values(arcpy, dataset, field, cap=VALUE_CAP):
+    """读字段数值。超过 cap 时按固定步长系统抽样，并把「抽过样」如实回报出去。
+
+    抽样必须显式回报：分位数断点在抽样下只是近似值，模型和用户都需要知道这一点，
+    否则会以为分级是精确的。
+    """
+    total = int(arcpy.management.GetCount(dataset)[0])
+    values = []
+    if total <= cap:
+        with arcpy.da.SearchCursor(dataset, [field]) as cursor:
+            for row in cursor:
+                if row[0] is not None:
+                    values.append(float(row[0]))
+        return values, False, total
+    stride = math.ceil(total / cap)
+    with arcpy.da.SearchCursor(dataset, [field]) as cursor:
+        for index, row in enumerate(cursor):
+            if index % stride == 0 and row[0] is not None:
+                values.append(float(row[0]))
+    return values, True, total
+
+
+def collect_categories(arcpy, dataset, field, limit=MAX_UNIQUE_VALUES):
+    """收集唯一值（字典序，保证同样数据每次出图配色一致）。超出 limit 即刻返回并标记。"""
+    seen = set()
+    with arcpy.da.SearchCursor(dataset, [field]) as cursor:
+        for row in cursor:
+            if row[0] is None:
+                continue
+            text = str(row[0]).strip()
+            if not text:
+                continue
+            seen.add(text)
+            if len(seen) > limit:
+                return sorted(seen), True
+    return sorted(seen), False
