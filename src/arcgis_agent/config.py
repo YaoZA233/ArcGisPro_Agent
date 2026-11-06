@@ -13,7 +13,7 @@ class Settings:
     python: Path | None = None
     expected_version: str = "3.5.2"
     timeout_seconds: int = 180
-    max_steps: int = 8
+    max_steps: int = 16
     model: str = "deepseek-flash"
     base_url: str = "https://api.deepseek.com"
     model_timeout_seconds: int = 120
@@ -22,6 +22,7 @@ class Settings:
     provider: str = "deepseek"
     skills_dir: Path | None = None
     data_roots: tuple[Path, ...] = ()
+    failure_budget: int = 3
 
     @classmethod
     def load(cls, path: Path | None = None) -> Settings:
@@ -35,11 +36,14 @@ class Settings:
 
         executable = os.environ.get("ARCGIS_PRO_PYTHON") or arcgis.get("python")
         timeout = arcgis.get("timeout_seconds", 180)
-        steps = agent.get("max_steps", 8)
+        steps = agent.get("max_steps", 16)
         if type(timeout) is not int or not 1 <= timeout <= 3600:
             raise ValueError("timeout_seconds must be an integer between 1 and 3600")
         if type(steps) is not int or not 1 <= steps <= 100:
             raise ValueError("max_steps must be an integer between 1 and 100")
+        failure_budget = agent.get("failure_budget", 3)
+        if type(failure_budget) is not int or not 1 <= failure_budget <= 20:
+            raise ValueError("failure_budget must be an integer between 1 and 20")
         model_timeout = model.get("timeout_seconds", 120)
         if type(model_timeout) is not int or not 1 <= model_timeout <= 600:
             raise ValueError("model timeout_seconds must be an integer between 1 and 600")
@@ -63,7 +67,7 @@ class Settings:
                    arcgis.get("expected_version", "3.5.2"), timeout, steps,
                    name, base_url.rstrip("/"), model_timeout, thinking, max_tokens, model.get("provider", "deepseek"),
                    resolve(agent["skills_dir"]) if agent.get("skills_dir") else None,
-                   tuple(resolve(item) for item in roots))
+                   tuple(resolve(item) for item in roots), failure_budget)
 
 
 def discover_python(explicit: Path | None = None) -> Path:

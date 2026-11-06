@@ -2,6 +2,19 @@
 
 按功能批次记录具体改动、涉及模块、验证结果和当前限制。项目版本当前保持 `0.1.0`，以下新增能力尚未单独发布版本。
 
+## 2026-11-06：Agent 失败自纠与更长多步任务（控制流、可配置预算与提示词纪律）
+
+- 本条合并本功能尚未提交的 Task 2 / Task 3 记录，并补全 Task 1 控制流与 Task 4 文档；下方既有历史不变。根因是 `agent.py` 在工具失败后立即退出，既有失败观察回流尚未给模型纠错机会。
+- 失败自纠（`src/arcgis_agent/agent.py`、`deepseek.py`）：`PlanPlanner.recovers=False`，CLI 静态计划与 Pro 工具箱保持失败即停；`DeepSeekPlanner.recovers=True`，聊天 / 面板及所有共用该规划器的供应商客户端可在实际工具调用返回 `ok=False` 后重新决策。未声明能力的 planner 仍失败即停。同批次剩余调用以 `NotExecuted` 闭合 ID、清空 pending 后再请求模型，不执行失败前的旧决策；全成功批次仍串行执行。
+- 有界恢复（`agent.py`）：一次成功清零连续失败计数；`failure_budget=3` 是首次失败加至多两次未成功纠正，第三次连续失败即停，不是额外重试三次；预算 1 首次失败即停。预算耗尽返回 `failed`，`summary.json` 保留完整观察及最后错误类型、含失败次数的消息与已有 `hint`，`events.jsonl` 记录 `recovery_exhausted`。`completed` 仅指规划器结束且最后观察不是失败（允许无工具调用），此前失败可仍在轨迹中；最后工具失败后直接结束仍为 `failed`，并非所有工具均成功或 GIS 业务验收通过。
+- 安全边界不变：拒绝、取消、授权过期、缺少授权处理器、写入未授权及循环内异常（含 runtime / 模型请求抛出异常）立即终止，不进入自纠；工具返回 `Cancelled` 也以取消终止，取消优先。每次实际调用（含只读探查和纠正）独立授权；写入能力是全局 `allow_writes` **或**本次单次写入许可，二者满足其一即可，但都不能代替本次授权，单次许可不传递。新数据输出仍限唯一任务目录，禁止删除或覆盖已有成果，不隐式保存源工程。
+- 配置与接线（`config.py`、`chat.py`、`interfaces.py`、`config/agent.example.toml`）：`Agent` / `ChatSession` / `Settings` 的 `max_steps` 默认统一由 8 改为 16，范围仍为精确整数 `1..100`；CLI / 工具箱默认步数也提高，不能称为所有行为零变化。新增 `failure_budget=3`，配置加载与 Agent 构造器接受精确整数 `1..20`，拒绝布尔、浮点、字符串及越界值。`Settings.load → create_session → ChatSession → Agent` 透传预算；保留 `ChatSession` 第五个位置参数 `memory` 及显式步数覆盖。直接构造 ChatSession 的预算在 `send()` 创建 Agent 时校验；未改用户 `config/local.toml`。
+- 提示词纪律（`src/arcgis_agent/prompts/system.md`）：多步调用前简短说明计划，依据 `error` / `hint` 诊断后采用不同纠正动作；用逐次授权的 `describe` / `find_datasets` / `read_rows` 补齐事实，以地图上下文和元数据消歧，仅对剩余业务取舍提问。空搜索只在配置根内尝试合理替代关键词，仍无结果则如实报告，不无限扫描或编造路径。仅提示词纪律，不引入结构化预规划阶段，也不保证全部技术问题可解；许可证、访问权限、安全审批及必要业务范围确认不能省略。无获授权的可行替代方案、缺许可或预算耗尽时报告尝试、阻碍、未完成步骤及保留成果。删除“是否覆盖已有成果”的业务选择示例；即使用户同意也不能覆盖。保留空选择集、禁任意代码、Spatial Analyst 扩展许可警告与离线模拟 / 工具成功 / 业务验收三层边界。
+- 离线覆盖（`tests/test_foundation.py`、`test_chat.py`、`test_memory.py`、`test_system_prompt.py`）：恢复测试 fake 返回 `Action` 而非 dict；覆盖失败后恢复、预算耗尽与成功清零、安全终止、失败批次 ID 闭合与重新规划、失败后不得假完成、默认值/类型/边界校验、工厂接线与位置记忆兼容、16 步完成/第 17 步不执行及显式上限、未完成历史与提示词授权契约。新增 **41 项**，基线 287 → **328 项**；工具总数契约仍为 62，提示词实测 **3709 字符 < 8000**。
+- 最终验证（主控已执行，本轮文档续作不重跑）：系统 Python **3.14.6** 经 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1`，**328 项 OK，6.635s，退出码 0**；已安装 Pro Python **3.11.11** 经 `PYTHONPATH=src "E:/programs/ArcGIS/bin/Python/envs/arcgispro-py3/python.exe" -m unittest discover -s tests -v`，**328 项 OK，6.939s，退出码 0**。本地证据为忽略目录中的 `workspace/self-correction/final-system-tests.txt` 与 `workspace/self-correction/final-pro-python-tests.txt`，不以此前中间轮次或计划预估计数代替最终结果。
+- 文档（`README.md`、`README.en.md`、`docs/architecture.md` 及本功能既有 spec / plan）：同步预算、状态、授权、验证边界，在原规格与计划顶部记录实际执行状态及偏差；下方字面示例和提交步骤保留为历史提案，不是执行记录。用户未要求提交，未自动创建 commit；实现已离线验证，仍待整分支审查。
+- 限制：本功能没有在线模型/API、真实 ArcPy（含许可证核验或 GIS 冒烟）及 GIS 业务验收；Pro Python 下的离线测试不等于真实 ArcPy 验证。纠错质量与模型遵循度未实测，原有 worker 测试诊断输出仍存在。`Timeout` / `Stalled` 返回 `ok=False` 时按普通失败反馈，仍受逐次授权与预算约束；`180s × failure_budget` 不是通用总截止时间，实际耗时取决于 runtime、超时配置、模型/授权等待及成功后的预算清零，总工具调用仍受步数上限约束。部分输出保留，不自动清理、覆盖或事务回滚；Pro 进程内工具箱没有强制超时。
+
 ## 2026-11-06：上下文与长期记忆（失忆 bug 修复 + 终端会话恢复 + 跨会话记忆）
 
 - 问题：终端对话表现为"没有上下文、没有记忆"。三处根因：① `chat.py send()` 只在 `status == "completed"` 时把 `planner.messages` 落回 `self.history`，被拒绝 / 写入未授权 / 失败 / 取消 / 步数超限的轮次全部丢弃，下一轮模型看不到此前尝试；② 终端只有 `/new`，没有列出与恢复历史会话的入口（`workspace/chats/*.json` 早已持久化却无从取回）；③ 没有任何跨会话的长期记忆，用户偏好每次都要重讲。

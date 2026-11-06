@@ -171,13 +171,21 @@ class HistoryRepairTests(unittest.TestCase):
         self.assertIn("写操作", content["error"]["message"])
 
     def test_failed_tool_turn_keeps_the_real_error_observation(self):
-        client = FakeClient([assistant(calls=[call("describe", {"dataset": "x"})])])
-        session = ChatSession(client, FailingRuntime(), self.root)
+        client = FakeClient([assistant(calls=[call("describe", {"dataset": "x"}, ident)])
+                             for ident in ("first", "retry", "last")])
+        runtime = FailingRuntime()
+        session = ChatSession(client, runtime, self.root)
         result = session.send("任务", approve=fixture_approval)
         self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["error"]["type"], "ValueError")
+        self.assertIn("连续 3 次", result["error"]["message"])
+        self.assertEqual(runtime.calls, 3)
+        self.assertEqual(len(client.requests), 3)
+        self.assertEqual([m["tool_call_id"] for m in session.history if m["role"] == "tool"], ["first", "retry", "last"])
         content = json.loads(session.history[-1]["content"])
         self.assertFalse(content["ok"])
         self.assertEqual(content["error"]["message"], "GIS dataset does not exist: x")
+        self.assertEqual(content, result["observations"][-1])
 
     def test_unknown_tool_failure_keeps_exchange(self):
         client = FakeClient([assistant(calls=[call("execute_python", {"code": "x"})])])

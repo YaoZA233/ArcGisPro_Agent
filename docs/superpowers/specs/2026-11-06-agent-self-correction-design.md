@@ -1,8 +1,19 @@
 # Agent 失败自纠与更长多步任务 · 设计规格
 
 - 日期：2026-11-06
-- 状态：已通过分节设计确认，待用户审阅本规格
+- 状态：已实现并完成离线验证，待整分支审查；未提交。
 - 范围：让 LLM 驱动的 Agent 在工具失败后自我纠错重试，而不是把问题抛回给用户；支持更长的多步任务。**不改动逐次授权安全模型。**
+
+## 执行状态与实际偏差（2026-11-06）
+
+本节为实际执行记录；下方原设计、行号、字面片段与预估数字保留为历史提案，不表示已逐字执行。当前行为与完整验证命令见 [README](../../../README.md#验证与测试) 和 [CHANGELOG](../../../CHANGELOG.md)。
+
+- 恢复测试 fake 实际返回 `Action` 而非 dict；`Agent` / `ChatSession` / `Settings` 默认步数均为 16（精确整数 `1..100`），不只改 Settings。`PlanPlanner` 失败即停不变，但 CLI / 工具箱默认步数提高，不能称“行为零变化”。
+- `DeepSeekPlanner.next_action` 实际有改动：失败批次未执行调用以 `NotExecuted` 闭合 ID、清空后请求模型重新决策；最后失败观察后直接结束仍为 `failed`。`completed` 允许此前失败，但最后观察不得失败，不证明 GIS 业务成功。
+- `failure_budget=3`（精确整数 `1..20`）计连续失败，成功清零；无中间成功时至多两次纠正尝试后第三次失败即停，不是额外三次重试。`Timeout` / `Stalled` 的 `ok=False` 可反馈；`180s × failure_budget` 不是通用总截止时间，部分输出保留，不自动删除、覆盖或回滚。
+- 删除“是否覆盖已有成果”业务选择示例；逐次授权包括只读与纠正调用，写入能力为全局 `allow_writes` **或**本次单次许可，但不免本次授权。拒绝、取消、过期、写入未授权和抛出异常仍立即停止。用户未要求提交，没有自动执行任何 commit 步骤。
+- 主控最终离线验证：系统 Python **3.14.6**（`scripts/test.ps1`）**328 项 OK / 6.635s**；Pro Python **3.11.11**（`PYTHONPATH=src`、unittest discover）**328 项 OK / 6.939s**，均退出码 0；较基线 287 增加 41 项，提示词 **3709 字符**。日志：`workspace/self-correction/final-system-tests.txt`、`workspace/self-correction/final-pro-python-tests.txt`（本地忽略目录）；本次文档续作不重跑套件。
+- 仅离线验证：未执行在线模型/API、真实 ArcPy 许可证核验或 GIS 冒烟、GIS 业务验收；Pro Python 离线测试不等于真实 ArcPy 验证，模型纠错质量仍未实测。
 
 ## 1. 背景与根因
 

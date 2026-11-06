@@ -77,8 +77,10 @@ def usage_numbers(usage: dict) -> dict:
 
 
 class ChatSession:
-    def __init__(self, client: DeepSeekClient, runtime: Runtime, workspace: Path, max_steps: int = 8, memory: MemoryStore | None = None):
+    def __init__(self, client: DeepSeekClient, runtime: Runtime, workspace: Path, max_steps: int = 16,
+                 memory: MemoryStore | None = None, failure_budget: int = 3):
         self.client, self.runtime, self.workspace, self.max_steps = client, runtime, workspace, max_steps
+        self.failure_budget = failure_budget
         self.memory = memory if memory is not None else MemoryStore(Path(workspace) / "memory.json")
         self.history: list[dict] = []
         self.turns: list[dict] = []
@@ -224,7 +226,7 @@ class ChatSession:
             if hasattr(self.runtime, "cancel_event"):
                 self.runtime.cancel_event = self.client.cancel_event
         try:
-            result = Agent(self.runtime, self.workspace, self.max_steps).run(planner, allow_writes=allow_writes,
+            result = Agent(self.runtime, self.workspace, self.max_steps, self.failure_budget).run(planner, allow_writes=allow_writes,
                 on_event=emit, cancel_event=getattr(self.client, "cancel_event", None), approve=approve)
         finally:
             if real_client:

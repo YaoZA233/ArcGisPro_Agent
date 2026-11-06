@@ -12,6 +12,8 @@ Drive ArcGIS Pro in natural language to inspect data, run vector and raster anal
 - **62 structured tools** and **7 multi-step skill packs**, with fully typed argument validation.
 - No third-party Python dependencies, and nothing is installed into ArcGIS's default environment; offline tests only need system Python ≥ 3.11.
 
+**Bounded failure self-correction:** chat and the pane use `DeepSeekPlanner` (`recovers=True`). All clients sharing that planner, including configured providers, can feed the original error and any available `hint` back to the model for a fresh decision after an actual tool call returns `ok=False`. Pending calls in that batch are skipped and their IDs closed with `NotExecuted` before requesting the model again; serial execution of all-successful batches is unchanged. Static JSON plans (CLI `run` / toolbox) still fail fast through `PlanPlanner` (`recovers=False`). Stating a plan, resolving ambiguity with read-only evidence and choosing a different corrective action after diagnosis are prompt-only disciplines, not a structured preplanning phase or a guarantee that the model can solve the problem.
+
 | Section | Contents |
 | --- | --- |
 | [Quick start](#quick-start) | Three commands to the first conversation |
@@ -21,7 +23,7 @@ Drive ArcGIS Pro in natural language to inspect data, run vector and raster anal
 | [Running real GIS work](#running-real-gis-work) | JSON plans and the task directory layout |
 | [Configuration](#configuration) | Local overrides, interpreter discovery, system prompt |
 | [Repository layout](#repository-layout) | What each directory is for |
-| [Verification and tests](#verification-and-tests) | 229 offline tests, ArcPy smoke runs |
+| [Verification and tests](#verification-and-tests) | 328 offline tests, ArcPy smoke instructions |
 | [Security and privacy](#security-and-privacy) | Where keys live, what leaves the machine |
 | [Current limits and roadmap](#current-limits-and-roadmap) | Known boundaries |
 
@@ -52,7 +54,7 @@ Other entry points:
 .\scripts\test.ps1                        # run the tests that do not need ArcGIS
 ```
 
-Verified on the development machine through ArcPy: `E:\programs\ArcGIS\bin\Python\envs\arcgispro-py3\python.exe`, ArcGIS Pro **3.5.2**, Python **3.11.11**, license level **ArcInfo**. The registry version field may report the base version, so trust what `doctor` reads from ArcPy.
+Historical ArcPy verification on the development machine (not validation of this self-correction batch): `E:\programs\ArcGIS\bin\Python\envs\arcgispro-py3\python.exe`, ArcGIS Pro **3.5.2**, Python **3.11.11**, license level **ArcInfo**. The registry version field may report the base version, so trust what `doctor` reads from ArcPy.
 
 Keys are stored in the ignored `.env.local` at the repository root, as an ordinary unencrypted local file; a process environment variable for the matching provider takes precedence. Enter them through the hidden `setup-key` prompt or the panel's dedicated API key field — never in a chat message or a command-line argument. The legacy DeepSeek settings in `config/local.toml` still apply until you save a connection, after which the workspace connection configuration wins.
 
@@ -164,7 +166,11 @@ workspace/runs/<UTC timestamp_unique ID>/
   outputs/<name>.tif     # raster output (when raster tools are used)
 ```
 
-Timestamps in logs are UTC. Offline simulation observations carry `simulated: true` and never fabricate a GDB. Errors, missing write permission and step-limit exhaustion return `failed`, `blocked` and `step_limit` respectively; denial, a missing approval handler and a pane approval timeout return `denied`, `approval_required` and `approval_expired`; cancellation returns `cancelled`. All of these unfinished states exit non-zero.
+Timestamps in logs are UTC. Offline simulation observations carry `simulated: true` and never fabricate a GDB. `completed` only means the planner ended with no failed final observation (possibly without calling any tool). Earlier failures may remain in the trace; it does not mean every observation succeeded or prove business-level GIS acceptance. A static-plan tool failure, exhaustion of the LLM consecutive-failure budget, the planner ending directly after a failed final tool call, or an exception in the execution loop returns `failed`. Failed observations retain the original error and any available `hint`; on budget exhaustion, `summary.json` also records the last error type, a message including the consecutive-failure count and any available `hint`, while `events.jsonl` records `recovery_exhausted`.
+
+Missing write capability returns `blocked`. If the tool-call ceiling is exhausted and the planner still requests a tool, `step_limit` is returned without executing the excess call. Denial, a missing approval handler and approval expiry return `denied`, `approval_required` and `approval_expired`; user cancellation, disconnection, a cancellation signal or a tool response with `error.type="Cancelled"` returns `cancelled`. These safety stops and execution-loop exceptions (including exceptions raised by the runtime) never enter self-correction. All unfinished states exit non-zero.
+
+Every corrective action needs fresh per-call approval, including read-only probes. A write needs both approval for that call and write capability; capability comes from explicitly enabled global writes **or** a single-call write grant, which never carries over to the next call. New data outputs remain confined to the unique task directory; recovery never automatically deletes or overwrites existing outputs.
 
 ## Configuration
 
@@ -176,6 +182,13 @@ You can rely on automatic discovery, or copy `config/agent.example.toml` to `con
 ```
 
 Relative paths inside a config file resolve against that file's directory. The CLI and the pane read the repository's `config/local.toml` automatically; `--config` points the CLI at another file. `config/local.toml` is excluded by `.gitignore` — change `config/agent.example.toml` when a default should be shared. With no config file, the CLI's output workspace defaults to `workspace` under the current directory; the pane starts background processes with the repository as the current directory; the toolbox defaults to this repository's `workspace` and picks up `config/local.toml` when present.
+
+| `[agent]` parameter | Default | Configuration range and meaning |
+| --- | --- | --- |
+| `max_steps` | `16` | Exact integer `1..100`; tool-call ceiling per task, including probes and corrective calls, not the number of model requests |
+| `failure_budget` | `3` | Exact integer `1..20`; consecutive tool-failure ceiling for recovering planners, not additional retries |
+
+Booleans, floats and strings are not accepted as integers. `Agent`, `Settings` and `ChatSession` all default to `max_steps=16`. The configured default ceiling for the CLI / toolbox also rises from 8 to 16; explicit values still apply, and static plans still fail fast. One successful tool call resets the consecutive-failure count. Budget 3 means the first failure plus at most two unsuccessful corrective attempts before the third consecutive failure stops the task (budget 1 stops at the first failure). Intervening success can reset that budget, but all actual tool calls remain bounded by the total step ceiling. A further model request may still be made after tool steps are exhausted to obtain a final answer or determine `step_limit`.
 
 `[agent] data_roots` lists the directories the agent may search on its own (at most 16). Without a path from the user, the model calls `find_datasets` to search these roots recursively by keyword — including members inside `.gdb`/`.gpkg` — instead of asking you for a path; add the directories where your GIS data lives. When unconfigured, `find_datasets` returns an explicit notice and the agent falls back to asking where the data is.
 
@@ -190,10 +203,10 @@ The system prompt sent to the model is the bundled [src/arcgis_agent/prompts/sys
 ```text
 .
 ├── src/arcgis_agent/         # agent core (pure Python, no third-party dependencies)
-│   ├── agent.py              # plan-execute loop and step ceiling
+│   ├── agent.py              # plan-execute loop, tool-step ceiling and consecutive-failure recovery budget
 │   ├── catalog.py            # schemas, argument validation and ArcPy implementations for 62 tools
 │   ├── providers.py          # provider presets, connection storage and key read/write
-│   ├── deepseek.py           # streaming client for the OpenAI-compatible protocol
+│   ├── deepseek.py           # OpenAI-compatible streaming client and shared LLM planner
 │   ├── interfaces.py         # CLI / chat / providers / doctor command entry points
 │   ├── approvals.py          # per-step approval handlers
 │   ├── runtime.py            # ArcPy child-process worker, timeout and stall watchdog
@@ -218,7 +231,9 @@ The system prompt sent to the model is the bundled [src/arcgis_agent/prompts/sys
 
 ## Verification and tests
 
-287 offline tests cover typed tool arguments, per-step approval, single-write permission, denial / cancellation / dropped connections, approval response replay, bounded loops, task recording, worker protocol faults and recovery, multi-model protocols and the subprocess protocol, layout workflows, extent units and coordinate-system consistency, read-only export, skill-pack validation, tool event step numbering, worker progress streaming with the startup stall watchdog, autonomous data discovery, long-term memory add/remove/dedup/cap, history closure of unfinished turns, and memory injection with session resume. Both system Python 3.14 and Pro Python 3.11 pass; [CI](.github/workflows/tests.yml) uses the same version matrix and never depends on ArcGIS in the cloud.
+328 offline tests (41 added in this batch over the 287-test baseline) cover typed tool arguments, per-step approval, single-write permission, denial / cancellation / dropped connections, approval response replay, bounded loops, task recording, worker protocol faults and recovery, multi-model protocols and the subprocess protocol, layout workflows, extent units and coordinate-system consistency, read-only export, skill-pack validation, tool event step numbering, worker progress streaming with the startup stall watchdog, autonomous data discovery, long-term memory add/remove/dedup/cap, history closure of unfinished turns, memory injection with session resume, plus failure self-correction, consecutive-failure budgets and resets on success, failed-batch replanning, terminal boundaries, configuration wiring and prompt discipline.
+
+Final offline verification already performed by the main controller: system Python **3.14.6** via `scripts/test.ps1` (**6.635s**) and installed Pro Python **3.11.11** via `python -m unittest discover -s tests -v` with `PYTHONPATH=src` (**6.939s**) both passed **328/328, exit code 0**. The prompt measured **3709 characters** (limit 8000); full commands and local log locations are in [CHANGELOG](CHANGELOG.md). This documentation-only continuation does not rerun the suites; whole-branch review remains pending. [CI](.github/workflows/tests.yml) configures a Python 3.11 / 3.14 matrix without ArcGIS; this is not a claim that a cloud run passed for this batch. No real ArcPy execution (including license checks or GIS smoke tests), live model/API run or business-level GIS acceptance was performed for this batch. Offline tests under Pro Python are not a licensed ArcPy smoke test. The following are instructions for real verification; historical results do not validate this batch.
 
 ```powershell
 .\scripts\test.ps1
@@ -257,6 +272,8 @@ Full text in [SECURITY.md](SECURITY.md). In short:
 - Surface and raster analysis needs the Spatial Analyst extension. If the license check-out fails before execution, the whole call fails and reports the license state — no partial results.
 
 Each CLI call starts its own ArcPy process: reliable, but with import overhead. A CLI timeout terminates the worker — if the worker had already written a complete result, it is returned and marked `worker_terminated`; otherwise the error keeps the tail of the worker's stderr plus a recovery hint. Partial results created earlier may remain, and there is no transactional rollback today. The toolbox inside Pro executes synchronously in the current process without a forced timeout, so long tasks need Pro's own task management.
+
+When `Timeout` / `Stalled` returns `ok=False`, an LLM session can still feed that failure back for a fresh decision; subsequent calls remain subject to independent approval, the consecutive-failure budget and the total step ceiling. Terminating a worker does not necessarily terminate the task. `180s × failure_budget` is not a universal task deadline: runtime mode, timeout settings, model requests, approval waits and budget resets after success all affect elapsed time. Partial outputs are retained, not automatically deleted or overwritten during recovery.
 
 Data editing tools copy first and edit the copy; overwrite is closed off, and there is no delete-dataset or arbitrary Python execution tool. One exception on the project side: `build_layout` copies Pro's own blank template and creates and saves a standalone layout project inside your current task at `workspace/runs/<task ID>/outputs/cartography/`. It never opens, saves or alters your existing projects, and `export_layout` opens that layout project read-only (verified by checksums in the real smoke run). Adding layers and setting visibility do modify the current map, and each such call needs explicit approval.
 

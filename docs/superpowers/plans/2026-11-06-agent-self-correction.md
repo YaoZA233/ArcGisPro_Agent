@@ -1,5 +1,16 @@
 # Agent 失败自纠与更长多步任务 Implementation Plan
 
+## 执行状态与实际偏差（2026-11-06）
+
+Task 1–3 已实现，Task 4 文档已同步，主控最终离线验证通过；待整分支审查，未提交。下方原步骤、复选框、字面代码、预计计数及提交命令均保留为历史提案，不是逐字执行记录或待自动执行的指令；以本节、[规格执行记录](../specs/2026-11-06-agent-self-correction-design.md) 和 [CHANGELOG](../../../CHANGELOG.md) 为准。
+
+- 测试 fake 返回 `Action`，不使用原 `step()` dict 充当 planner 动作。`Agent` / `ChatSession` / `Settings` 默认步数统一为 16（精确整数 `1..100`）；静态 `PlanPlanner` 仍失败即停，但 CLI / 工具箱默认步数也提高。
+- `DeepSeekPlanner.next_action` 并非无需改动：失败批次后续调用以 `NotExecuted` 闭合 ID、清空，再请求模型重新决策；最后失败观察后直接结束不能标为 `completed`。此前失败可保留，完成状态不等于 GIS 业务成功。
+- 连续失败预算默认 3（精确整数 `1..20`），成功清零；无中间成功时首次失败加至多两次纠正尝试即到停止阈值，不是三次额外重试。`Timeout` / `Stalled` 返回 `ok=False` 时可反馈，`180s × failure_budget` 非通用总截止时间；部分输出保留，不自动删除、覆盖或回滚。
+- 删除“是否覆盖已有成果”的业务取舍示例；写入能力为全局 `allow_writes` **或**本次单次许可，所有实际调用（含只读 / 纠正）仍各自授权。拒绝、取消、过期、写入未授权与抛出异常仍立即停止。用户未要求提交，所有原 commit 步骤均未自动执行。
+- 主控实际最终结果：系统 Python **3.14.6** 经 `scripts/test.ps1` **328 项 OK / 6.635s**；Pro Python **3.11.11** 经 `PYTHONPATH=src` 下 unittest discover **328 项 OK / 6.939s**，均退出码 0。基线 287 → 328（+41），提示词 **3709 字符**；完整命令见 [验证记录](../../../CHANGELOG.md)，本地忽略日志为 `workspace/self-correction/final-system-tests.txt` 与 `workspace/self-correction/final-pro-python-tests.txt`。文档续作不重跑套件。
+- 未执行在线模型/API、真实 ArcPy（许可证核验 / GIS 冒烟）或 GIS 业务验收；Pro Python 离线通过不等于 ArcPy 真机验证，模型遵循度与纠错质量未实测。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 让 LLM 驱动的会话在工具失败后把失败反馈给模型自我纠错重试（受连续失败预算与步数上限约束），而不是把问题抛回给用户；确定性计划保持失败即停；逐次授权安全模型一字不改。

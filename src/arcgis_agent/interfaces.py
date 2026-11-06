@@ -38,7 +38,8 @@ def create_session(settings: Settings) -> ChatSession:
     memory = MemoryStore(settings.workspace / "memory.json")
     runtime = ArcPyRuntime(discover_python(settings.python), settings.timeout_seconds, settings.skills_dir,
                            data_roots=settings.data_roots, memory=memory)
-    session = ChatSession(client, runtime, settings.workspace, settings.max_steps, memory=memory)
+    session = ChatSession(client, runtime, settings.workspace, settings.max_steps, memory=memory,
+                          failure_budget=settings.failure_budget)
     session.providers = store
     return session
 

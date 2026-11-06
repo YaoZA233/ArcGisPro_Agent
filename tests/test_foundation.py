@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import copy
 import json
 import subprocess
 import tempfile
+import threading
 import unittest
 from functools import partial
 from approval_fixtures import fixture_approval
@@ -18,6 +20,40 @@ from arcgis_agent.tools import validate_call
 
 def step(tool="environment", **arguments):
     return {"tool": tool, "arguments": arguments}
+
+
+FAILURE = {"ok": False, "error": {"type": "ArcPy", "message": "ERROR 000732", "hint": "用 find_datasets 定位"}}
+SUCCESS = {"ok": True, "data": {"path": "out"}, "simulated": True}
+
+
+class ScriptedRuntime:
+    """Offline tool boundary; records dispatches and returns independent results."""
+    def __init__(self, results):
+        self.results = list(results)
+        self.calls = []
+
+    def call(self, name, arguments, output_dir, on_progress=None):
+        self.calls.append((name, copy.deepcopy(arguments), output_dir))
+        if len(self.calls) > len(self.results):
+            raise AssertionError("Unexpected runtime dispatch")
+        result = self.results[len(self.calls) - 1]
+        if isinstance(result, Exception):
+            raise result
+        return copy.deepcopy(result)
+
+
+class ScriptedPlanner:
+    def __init__(self, actions):
+        self.actions = list(actions)
+        self.seen = []
+
+    def next_action(self, observations):
+        self.seen.append(copy.deepcopy(observations))
+        return self.actions[len(observations)] if len(observations) < len(self.actions) else None
+
+
+class RecoveringPlanner(ScriptedPlanner):
+    recovers = True
 
 
 class FoundationTests(unittest.TestCase):
@@ -90,6 +126,198 @@ class FoundationTests(unittest.TestCase):
         result = self.agent(runtime).run(PlanPlanner([step(), step()]))
         self.assertEqual(result["status"], "failed")
         self.assertEqual(runtime.calls, 1)
+
+    def test_recovering_planner_continues_and_retains_failed_observations(self):
+        runtime = ScriptedRuntime([FAILURE, SUCCESS])
+        planner = RecoveringPlanner([Action("environment", {}), Action("describe", {"dataset": "corrected"})])
+        result = Agent(runtime, self.root).run(planner, approve=fixture_approval)
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual([name for name, _, _ in runtime.calls], ["environment", "describe"])
+        self.assertEqual([item["ok"] for item in result["observations"]], [False, True])
+        self.assertEqual(planner.seen[1][0]["error"], FAILURE["error"])
+        self.assertEqual(planner.seen[-1], result["observations"])
+        self.assertNotIn("error", result)
+        self.assertTrue(result["simulated"])
+
+    def test_failure_budgets_stop_at_one_default_three_and_maximum_twenty(self):
+        for budget, options in ((1, {"failure_budget": 1}), (3, {}), (20, {"max_steps": 21, "failure_budget": 20})):
+            with self.subTest(budget=budget):
+                runtime = ScriptedRuntime([FAILURE] * (budget + 1))
+                planner = RecoveringPlanner([Action("environment", {})] * (budget + 1))
+                events = []
+                result = Agent(runtime, self.root, **options).run(planner, approve=fixture_approval, on_event=events.append)
+                self.assertEqual(result["status"], "failed")
+                self.assertEqual(len(runtime.calls), budget)
+                self.assertEqual(len(planner.seen), budget)
+                self.assertEqual(result["error"]["type"], "ArcPy")
+                self.assertIn(f"连续 {budget} 次", result["error"]["message"])
+                self.assertIn("ERROR 000732", result["error"]["message"])
+                self.assertEqual(result["error"]["hint"], "用 find_datasets 定位")
+                self.assertEqual([item["error"] for item in result["observations"]], [FAILURE["error"]] * budget)
+                exhausted = [item for item in events if item["event"] == "recovery_exhausted"]
+                self.assertEqual(len(exhausted), 1)
+                self.assertEqual(exhausted[0]["step"], budget)
+                self.assertEqual(exhausted[0]["type"], "ArcPy")
+                run_dir = Path(result["run_dir"])
+                self.assertEqual(json.loads((run_dir / "summary.json").read_text(encoding="utf-8")), result)
+                persisted = [json.loads(line) for line in (run_dir / "events.jsonl").read_text(encoding="utf-8").splitlines()]
+                self.assertEqual(persisted, events)
+                self.assertEqual(events[-1]["status"], "failed")
+
+    def test_failure_budget_requires_exact_integer_in_range(self):
+        for value in (0, -1, 21, True, False, 1.0, "3", None):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "failure_budget"):
+                Agent(MockRuntime(), self.root, failure_budget=value)
+        self.assertFalse((self.root / "runs").exists())
+
+    def test_max_steps_requires_integer_in_range(self):
+        for value in (0, -1, 101, True, 1.0, "16", None):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "max_steps"):
+                Agent(MockRuntime(), self.root, max_steps=value)
+        self.assertFalse((self.root / "runs").exists())
+
+    def test_success_resets_consecutive_failure_counter(self):
+        runtime = ScriptedRuntime([FAILURE, FAILURE, SUCCESS, FAILURE, FAILURE, SUCCESS])
+        planner = RecoveringPlanner([Action("environment", {})] * 6)
+        result = Agent(runtime, self.root, 8, 3).run(planner, approve=fixture_approval)
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(len(runtime.calls), 6)
+        self.assertEqual([item["ok"] for item in result["observations"]], [False, False, True, False, False, True])
+
+    def test_missing_recovery_capability_stays_fail_fast(self):
+        runtime = ScriptedRuntime([FAILURE, SUCCESS])
+        planner = ScriptedPlanner([Action("environment", {})] * 2)
+        result = Agent(runtime, self.root).run(planner, approve=fixture_approval)
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(len(runtime.calls), 1)
+        self.assertEqual(len(planner.seen), 1)
+
+    def test_stopping_after_failure_preserves_last_error_instead_of_completing(self):
+        runtime = ScriptedRuntime([FAILURE])
+        planner = RecoveringPlanner([Action("environment", {})])
+        result = Agent(runtime, self.root).run(planner, approve=fixture_approval)
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(len(planner.seen), 2)
+        self.assertEqual(result["error"], FAILURE["error"])
+        self.assertEqual(result["observations"][0]["error"], FAILURE["error"])
+
+    def test_recovery_respects_default_sixteen_and_explicit_step_limits(self):
+        for limit, options in ((16, {}), (2, {"max_steps": 2}), (100, {"max_steps": 100})):
+            for exact in (True, False):
+                with self.subTest(limit=limit, exact=exact):
+                    runtime = ScriptedRuntime([FAILURE] + [SUCCESS] * limit)
+                    planner = RecoveringPlanner([Action("environment", {})] * (limit if exact else limit + 1))
+                    events = []
+                    result = Agent(runtime, self.root, **options).run(planner, approve=fixture_approval, on_event=events.append)
+                    self.assertEqual(result["status"], "completed" if exact else "step_limit")
+                    self.assertEqual(len(runtime.calls), limit)
+                    self.assertEqual(len([e for e in events if e["event"] == "approval_requested"]), limit)
+
+    def test_cancelled_tool_result_is_terminal_without_cancel_event(self):
+        cancelled = {"ok": False, "error": {"type": "Cancelled", "message": "用户取消"}}
+        runtime = ScriptedRuntime([FAILURE, FAILURE, cancelled, SUCCESS])
+        planner = RecoveringPlanner([Action("environment", {})] * 4)
+        events = []
+        result = Agent(runtime, self.root).run(planner, approve=fixture_approval, on_event=events.append)
+        self.assertEqual(result["status"], "cancelled")
+        self.assertEqual(len(runtime.calls), 3)
+        self.assertEqual(len(planner.seen), 3)
+        self.assertEqual(result["observations"][-1]["error"], cancelled["error"])
+        self.assertNotIn("recovery_exhausted", [e["event"] for e in events])
+
+    def test_cancellation_on_last_allowed_failure_takes_priority_in_callbacks(self):
+        for trigger in ("tool_result", "recovery_exhausted"):
+            with self.subTest(trigger=trigger):
+                cancel = threading.Event()
+                events = []
+                def on_event(event):
+                    events.append(event)
+                    if event["event"] == trigger and event.get("step") == 3:
+                        cancel.set()
+                runtime = ScriptedRuntime([FAILURE] * 4)
+                planner = RecoveringPlanner([Action("environment", {})] * 4)
+                result = Agent(runtime, self.root).run(planner, approve=fixture_approval, on_event=on_event, cancel_event=cancel)
+                self.assertEqual(result["status"], "cancelled")
+                self.assertEqual(len(runtime.calls), 3)
+                self.assertEqual(len(planner.seen), 3)
+                self.assertEqual(events[-1]["status"], "cancelled")
+                saved = json.loads((Path(result["run_dir"]) / "summary.json").read_text(encoding="utf-8"))
+                self.assertEqual(saved["status"], "cancelled")
+                if trigger == "tool_result":
+                    self.assertNotIn("recovery_exhausted", [e["event"] for e in events])
+
+    def test_cancellation_after_successful_result_stops_recovery(self):
+        cancel = threading.Event()
+        def on_event(event):
+            if event["event"] == "tool_result" and event["ok"]:
+                cancel.set()
+        runtime = ScriptedRuntime([FAILURE, SUCCESS, SUCCESS])
+        planner = RecoveringPlanner([Action("environment", {})] * 3)
+        result = Agent(runtime, self.root).run(planner, approve=fixture_approval, cancel_event=cancel, on_event=on_event)
+        self.assertEqual(result["status"], "cancelled")
+        self.assertEqual(len(runtime.calls), 2)
+        self.assertEqual(len(planner.seen), 2)
+
+    def test_recovery_never_retries_runtime_exceptions(self):
+        runtime = ScriptedRuntime([FAILURE, RuntimeError("broken runtime"), SUCCESS])
+        planner = RecoveringPlanner([Action("environment", {})] * 3)
+        result = Agent(runtime, self.root).run(planner, approve=fixture_approval)
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["error"], {"type": "RuntimeError", "message": "broken runtime"})
+        self.assertEqual(len(runtime.calls), 2)
+        self.assertEqual(len(planner.seen), 2)
+        self.assertEqual(len(result["observations"]), 1)
+
+    def test_recovery_approval_denial_cancel_expired_and_blocked_are_terminal(self):
+        for decision, status in (("deny", "denied"), ("cancel", "cancelled"), ("expired", "approval_expired"), ("allow", "blocked")):
+            with self.subTest(decision=decision):
+                requests = []
+                def approve(request):
+                    requests.append(request)
+                    return {"decision": "allow" if len(requests) == 1 else decision, "allow_writes": False}
+                runtime = ScriptedRuntime([FAILURE, SUCCESS])
+                planner = RecoveringPlanner([Action("environment", {}), Action("buffer", {"dataset": "x", "distance": "1 Meters", "output_name": "out"})])
+                result = Agent(runtime, self.root).run(planner, approve=approve)
+                self.assertEqual(result["status"], status)
+                self.assertEqual(len(runtime.calls), 1)
+                self.assertEqual(len(planner.seen), 2)
+                self.assertEqual(len(requests), 2)
+                self.assertEqual(len(result["observations"]), 1)
+
+    def test_retry_write_cannot_inherit_previous_single_operation_grant(self):
+        requests = []
+        def approve(request):
+            requests.append(request)
+            return {"decision": "allow", "allow_writes": len(requests) == 1}
+        runtime = ScriptedRuntime([FAILURE, SUCCESS])
+        planner = RecoveringPlanner([Action("buffer", {"dataset": "x", "distance": "1 Meters", "output_name": name}) for name in ("first", "corrected")])
+        result = Agent(runtime, self.root).run(planner, approve=approve)
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(len(runtime.calls), 1)
+        self.assertEqual([r["arguments"]["output_name"] for r in requests], ["first", "corrected"])
+        self.assertNotEqual(requests[0]["request_id"], requests[1]["request_id"])
+        self.assertNotEqual(requests[0]["digest"], requests[1]["digest"])
+
+    def test_invalid_recovery_actions_are_terminal_before_approval(self):
+        for action in (Action("execute_python", {}), Action("describe", {"dataset": ""})):
+            with self.subTest(action=action):
+                runtime = ScriptedRuntime([FAILURE, SUCCESS])
+                planner = RecoveringPlanner([Action("environment", {}), action, Action("environment", {})])
+                requests = []
+                def approve(request):
+                    requests.append(request)
+                    return fixture_approval(request)
+                result = Agent(runtime, self.root).run(planner, approve=approve)
+                self.assertEqual(result["status"], "failed")
+                self.assertEqual(result["error"]["type"], "ValueError")
+                self.assertEqual(len(runtime.calls), 1)
+                self.assertEqual(len(planner.seen), 2)
+                self.assertEqual(len(requests), 1)
+
+    def test_planner_recovery_capability_flags(self):
+        from arcgis_agent.deepseek import DeepSeekPlanner
+        self.assertFalse(PlanPlanner.recovers)
+        self.assertTrue(DeepSeekPlanner.recovers)
 
     def test_planner_cannot_loop_forever(self):
         class Forever:
@@ -183,6 +411,45 @@ class FoundationTests(unittest.TestCase):
         self.assertEqual(_layout_record(Layout()), {"name": "湖南县市地图", "page_width": 420.0,
                                                     "page_height": 297.0, "page_units": "MILLIMETER",
                                                     "element_count": 5})
+
+    def test_settings_direct_defaults_allow_longer_runs_with_bounded_recovery(self):
+        settings = Settings(workspace=self.root)
+        self.assertEqual(settings.max_steps, 16)
+        self.assertEqual(settings.failure_budget, 3)
+
+    def test_config_without_file_uses_step_and_failure_defaults(self):
+        settings = Settings.load()
+        self.assertEqual(settings.max_steps, 16)
+        self.assertEqual(settings.failure_budget, 3)
+
+    def test_config_missing_budgets_uses_defaults(self):
+        config = self.root / "defaults.toml"
+        config.write_text('[agent]\nworkspace = "outputs"\n', encoding="utf-8")
+        settings = Settings.load(config)
+        self.assertEqual(settings.max_steps, 16)
+        self.assertEqual(settings.failure_budget, 3)
+        self.assertEqual(settings.workspace, self.root / "outputs")
+
+    def test_config_explicit_budget_boundaries_preserve_other_fields(self):
+        config = self.root / "budgets.toml"
+        for budget, steps in ((1, 20), (20, 1)):
+            with self.subTest(budget=budget, steps=steps):
+                config.write_text(
+                    f'[agent]\nmax_steps = {steps}\nfailure_budget = {budget}\n'
+                    'skills_dir = "packs"\ndata_roots = ["data"]\n', encoding="utf-8")
+                settings = Settings.load(config)
+                self.assertEqual(settings.max_steps, steps)
+                self.assertEqual(settings.failure_budget, budget)
+                self.assertEqual(settings.skills_dir, self.root / "packs")
+                self.assertEqual(settings.data_roots, (self.root / "data",))
+
+    def test_config_failure_budget_requires_exact_integer_in_range(self):
+        config = self.root / "invalid-budget.toml"
+        for value in ('0', '21', 'true', 'false', '1.0', '"3"', '"x"'):
+            with self.subTest(value=value):
+                config.write_text(f'[agent]\nfailure_budget = {value}\n', encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, "failure_budget"):
+                    Settings.load(config)
 
     def test_config_paths_relative_to_config_file(self):
         config = self.root / "agent.toml"

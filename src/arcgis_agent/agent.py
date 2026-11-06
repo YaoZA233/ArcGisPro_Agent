@@ -27,6 +27,8 @@ class Planner(Protocol):
 
 class PlanPlanner:
     """Deterministic plan executor for the foundation, not a natural-language model."""
+    recovers = False
+
     def __init__(self, steps: list[dict]):
         self.actions = [Action(step["tool"], dict(step["arguments"])) for step in steps]
 
@@ -48,8 +50,13 @@ def validate_plan(plan: dict, max_steps: int) -> list[dict]:
 
 
 class Agent:
-    def __init__(self, runtime: Runtime, workspace: Path, max_steps: int = 8):
+    def __init__(self, runtime: Runtime, workspace: Path, max_steps: int = 16, failure_budget: int = 3):
+        if type(max_steps) is not int or not 1 <= max_steps <= 100:
+            raise ValueError("max_steps must be an integer in 1..100")
+        if type(failure_budget) is not int or not 1 <= failure_budget <= 20:
+            raise ValueError("failure_budget must be an integer in 1..20")
         self.runtime, self.workspace, self.max_steps = runtime, workspace.resolve(), max_steps
+        self.failure_budget = failure_budget
 
     def run(self, planner: Planner, *, allow_writes: bool = False,
             on_event: Callable[[dict], None] | None = None,
@@ -70,13 +77,20 @@ class Agent:
 
         event("started", {"allow_writes": allow_writes})
         try:
+            recovers = getattr(planner, "recovers", False)
+            consecutive_failures = 0
             for index in range(self.max_steps + 1):
                 if cancel_event and cancel_event.is_set():
                     summary["status"] = "cancelled"
                     break
                 action = planner.next_action(observations)
                 if action is None:
-                    summary["status"] = "completed"
+                    if observations and not observations[-1]["ok"]:
+                        summary["status"] = "failed"
+                        summary["error"] = copy.deepcopy(observations[-1].get("error") or {
+                            "type": "ToolFailure", "message": "Tool returned ok=False"})
+                    else:
+                        summary["status"] = "completed"
                     break
                 if index == self.max_steps:
                     summary["status"] = "step_limit"
@@ -126,12 +140,33 @@ class Agent:
                 observation = {"tool": action.tool, "arguments": action.arguments, **result}
                 observations.append(observation)
                 event("tool_result", {**observation, "step": index + 1})
-                if not result["ok"]:
-                    summary["status"] = "cancelled" if cancel_event and cancel_event.is_set() else "failed"
+                last_error = result.get("error") or {}
+                if (cancel_event and cancel_event.is_set()) or last_error.get("type") == "Cancelled":
+                    summary["status"] = "cancelled"
+                    break
+                if result["ok"]:
+                    consecutive_failures = 0
+                    continue
+                if not recovers:
+                    summary["status"] = "failed"
+                    break
+                consecutive_failures += 1
+                if consecutive_failures >= self.failure_budget:
+                    summary["status"] = "failed"
+                    summary["error"] = {
+                        "type": last_error.get("type", "ToolFailure"),
+                        "message": f"连续 {self.failure_budget} 次工具调用失败，已停止自动重试；最后错误：{last_error.get('message', '')}",
+                    }
+                    if last_error.get("hint"):
+                        summary["error"]["hint"] = last_error["hint"]
+                    event("recovery_exhausted", {"step": index + 1, "type": summary["error"]["type"]})
                     break
         except Exception as exc:
             summary["status"] = "cancelled" if cancel_event and cancel_event.is_set() else "failed"
             summary["error"] = {"type": type(exc).__name__, "message": str(exc)}
+        # Callbacks (including recovery_exhausted) may cancel on the final step.
+        if cancel_event and cancel_event.is_set():
+            summary["status"] = "cancelled"
         summary["simulated"] = any(item.get("simulated", False) for item in observations)
         event("finished", {"status": summary["status"], "simulated": summary["simulated"]})
         (run_dir / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")

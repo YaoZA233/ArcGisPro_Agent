@@ -209,6 +209,8 @@ class DeepSeekClient:
 
 
 class DeepSeekPlanner:
+    recovers = True
+
     def __init__(self, client: DeepSeekClient, history: list[dict], prompt):
         self.client = client
         self.messages = [{"role": "system", "content": SYSTEM}, *history, {"role": "user", "content": prompt}]
@@ -225,6 +227,16 @@ class DeepSeekPlanner:
                                   "content": json.dumps(observations[-1], ensure_ascii=False)})
             self.seen_observations += 1
             self.active_call = None
+            if not observations[-1]["ok"]:
+                # The rest of this batch may depend on the failed call. Close its
+                # IDs without dispatching stale actions, then ask the model again.
+                for call in self.pending:
+                    self.messages.append({"role": "tool", "tool_call_id": call["id"],
+                                          "content": json.dumps({"ok": False, "error": {
+                                              "type": "NotExecuted",
+                                              "message": "前序工具调用失败，本批次后续调用未执行；请根据失败结果重新规划。",
+                                          }}, ensure_ascii=False)})
+                self.pending.clear()
         if not self.pending:
             message = self.client.complete(self.messages)
             if hasattr(self.client, "_emit"):
