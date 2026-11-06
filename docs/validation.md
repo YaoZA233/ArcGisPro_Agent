@@ -1,5 +1,30 @@
 # 本机验证记录
 
+## 批次 10 符号化与标注（2026-11-06）
+
+本批次给 `build_layout` 增加两个参数（`styles` 色板符号化、`labels` 图层标注），不新增 LLM 可见工具、不新增写路径，只读不变量不变。符号化只走**受控预设色板**（BLUES/GREENS/RD_BU/REDS/CATEGORY10/LAND_USE/BASE/ELEVATION/HILLSHADE_GRAY），不给模型自由调色参数；分级只支持**等距分位（EQUAL_INTERVAL）与分位数（QUANTILE）**，无 Jenks、无手动断点。
+
+- 系统 Python 3.14.6：`PYTHONPATH=src python -m unittest discover -s tests` **452 项离线测试全部通过**（6.87s，`test.ps1` 同批）。本批次新增 `tests/test_symbology.py` 114 项（色板完整性契约、断点/唯一值计算、样式与标注校验、矢量/栅格 CIM 生成、标注写回、拒绝路径）与 `tests/test_cartography.py` 的 `SymbologyWiringTests` 10 项（`build_layout` 接线：前置校验先于复制模板、返回 `symbology`/`labels` 段、definition 落到图层、无样式图层不碰 CIM、图名颜色走 `values` 而非关键字的回归）。既有 `test_approvals.py` 62 断言与批次 3 的 cartography 契约测试均未回归。
+- Pro Python 3.11 / ArcGIS Pro 3.5.2 真实运行 `scripts/smoke_symbology.py`（两次独立运行）：**41 项检查全部通过**（`ok: true`，`version: "3.5.2"`，`hillshade_available: true`，耗时约 240s，退出码 0），9 条拒绝路径各返回预期中文错误且零残留，合成 fixture 仅写入 `workspace/smoke/symbology_<uuid>`。
+- **色板真的落到图上（颜色直方图，比 `ink()` 强一个量级——既证配色又证分级归属）**：
+  - 分级色彩 BLUES 5 档全部命中（容差 ≤4/通道），导出图各档像素数 `[222441, 221446, 110556, 221445, 220780]`，与要素实际分布 `[2,2,1,2,2]` 吻合——每档"像素/要素"近似恒定（约 11.05 万，最大偏差 0.45%），证明第 3 档只有 1 个要素、其余各 2 个。断点 `[25.8,46.6,67.4,88.2,109.0]`（min 5.0 / max 109.0）。
+  - 唯一值 CATEGORY10 前 5 色全部命中，类别 `[建成区,林地,水体,耕地,草地]` 分布 `[2,2,2,2,1]`，"像素/类别"最大偏差 0.15%。
+  - 土地利用 LAND_USE 语义色：水体命中 `#3B7DBF`；注入的"盐田"类未命中预设，返回 `symbology[0]["unmatched"] == ["盐田"]` 并回退灰 `#9E9E9E`。
+  - 简单符号 BASE：面 `#DCE6F1`、线 `#4D4D4D`、点 `#3B6E8F` 各自命中。
+  - 栅格 ELEVATION 7 档色带全部命中（连续拉伸，`distinct_colors 455`）。
+- **标注实测**：带标注 vs 不带标注两次导出，深色像素 `229156 → 232818`、纯黑像素 `7308 → 10155`（净增 2847）证明字形真的渲染；白底对照图同向增长。字色由常量驱动：默认 `LABEL_COLOR #000000` → 回读 glyph `[0,0,0,100]`；把常量临时换成 `#C00000` 后回读 `[192,0,0,100]`，证明不是硬编码。
+- **图名颜色修正（离线有确定性证据，真机不可判定来源）**：`_add_title` 改用 `CIMRGBColor().values = [0,0,0,100]`（0–100 量纲）——旧的 `red=/green=/blue=` 关键字会被 CIM 静默忽略、`.values` 从未写入。这条"写入真的落到 `values`"由离线 `test_title_color_goes_through_values_not_keywords` 钉住（构造期拦截，退回关键字即 TypeError）。但真机导出只证明"图名是黑字"，**无法**区分这黑色来自我们的 `values` 还是 Pro 默认黑：同一 `symbol` 上请求的 20pt/加粗/居中在导出里完全没生效（`title_band` 实测字形约 9.3pt、左对齐、reload 后 `symbol` 回读 `None`），说明该 CIMGraphic 文本元素的 symbol 未被渲染路径采纳（详见下方已知缺陷）。
+- **只读与源数据不变量**：导出前后 `.aprx` SHA256 一致；`input.gdb` 的 `changed`/`deleted` 均空、要素计数前后一致（仅 `.sr.lock`/`.aux.xml`/金字塔等渲染缓存副作用）。9 条拒绝逐目录扫描确认零半成品残留。抽样开关实测：把 `VALUE_CAP` 调小后返回 `sampled: true`（正常路径 `sampled: false`）。
+- **本批次把设计里四个"离线无法判定、需真机确认"的假设逐条钉死**：
+  1. `runtime_fill_class_name_is_cimsolidfill`——矢量填充节点在跨进程 save/reload 后 `type(obj).__name__` 确为 `CIMSolidFill`；CIM 对象虽是 dict，但**无** `__type__` 判别字段（`definition_has_json_attribute: false`），探测 dump 里看到的 `__type__` 就是 Python 类名。分派依据只能是 Python 类名。
+  2. `raster_ramp_property_spellings_live` + `raster_ramp_needs_no_weights`——栅格走 `definition.colorizer`（`renderer` 为 `None`），`colorizer.colorRamp` 是 `CIMMultipartColorRamp`，7 色 = 6 段 `CIMLinearContinuousColorRamp`（`fromColor`/`toColor`），`weights` 为空即生效。
+  3. `label_container_round_trip_renders`——改现有 `labelClasses[0]`（非整表替换）真的渲染；回读用 `.height=18`，`fontSize` 属性在回读时 `absent`（故写回时 fontSize 与 height 都设，渲染以 height 为准）；`expression "$feature.NAME"`、`expressionEngine "Arcade"`、`labelVisibility true`。
+  4. `title_color_still_black_after_the_values_fix`——图名导出为黑字（黑色占比 0.5035、主字形模态 `#000000` 1266 像素）；但如"图名颜色修正"条所述，真机不能区分黑字来自 `values` 写入还是 Pro 默认，确定性证据只在离线层。
+- **实测得出的 API 结论**：`arcpy.cim` 的 RGB 用 0–100 量纲 `values`（非 0–255，非 `red=/green=/blue=`）；分级容器 `CIMClassBreaksRenderer.breaks`、唯一值 `CIMUniqueValueRenderer.groups→classes`、简单符号 `CIMSimpleRenderer.symbol`；标注字号真正生效属性是 `CIMTextSymbol.height`（`fontSize` 读回缺失）；栅格色彩映射挂 `colorizer.colorRamp` 而非 `renderer`；`ApplySymbol` 类高层 API 未用，全程 `getDefinition("V3")/setDefinition` 手改 CIM。
+- **一个记录在案的已知缺陷**（`title_symbol_formatting_is_a_recorded_defect`）：文本图名走 `CIMParagraphTextGraphic`/`CIMTextSymbol`/`CIMGraphicElement` + `setDefinition`，`.aprx` save/reload 后回读该 graphic 的 `symbol` 为 `None`（`text_survived` 仍在），且**首次导出也未采纳 symbol**——`title_band` 实测请求 20pt 但字形约 9.3pt、左对齐（我们设的是 Center），即字体族/字号/加粗/对齐在真机导出里没生效，图名以 Pro 默认样式渲染。**这是批次 3 起就存在的文本元素路径限制，与本批符号化改动无关，本批只改了颜色写法，无法顺带修好格式未落地的问题**；`title_symbol_formatting_is_a_recorded_defect` 以反向断言把当前"symbol 回读 None"钉住，将来若有人修好格式该测试会转红提醒同步。审阅 `review/` 图时请知悉图名观感反映的是默认渲染、非请求样式。
+
+**本轮未验证**：出图成果的**业务级制图人眼验收尚未完成**——4 张代表性图（`workspace/smoke/<uuid>/review/` 的专题分级、土地利用唯一值、地形晕渲叠分层设色、带标注规范图）已导出待用户目测，美观、图例密度、字号与配色观感无法机器判定，冒烟的像素直方图只能证明"色板落色且分级分布正确"，**不能**证明"某个具体要素被刷成了它应得的颜色"（脚本不做逐要素/空间位置核验）：分级色彩靠每像素计数比例对分布负责，但唯一值/LAND_USE 的合成 fixture 各类要素等面积且各 ≥1 要素，置换类别仍会全绿——即色板↔类别的**逐要素落位正确性**是全局直方图的固有盲区，需人眼验收。色板取值来自通用 GIS 惯例，未经制图专业评审。标注避让只做了最小实现（单 labelClass、Arcade 表达式、字号字色），多标注要素的冲突消解、标注权重与 halo/背景框未做。栅格分级未做（新发现：`colorizer` 自带 `stretchStats.histogram`，将来做栅格分级无需自己读像元）。多层栅格叠放存疑：晕渲灰叠在分层设色之上时导出出现非任何色板的饱和色（约 52.9 万像素，`#ff2138`/`#00fc22` 等），单幅 ELEVATION 图（03b）正常，疑为 ArcGIS 半透明叠放/拉伸交互而非本项目代码缺陷，但未人眼验收。C# 面板授权卡片对 `styles`/`labels` 新参数只有离线契约覆盖，未在 Pro 进程内实测。
+
 ## 批次 9 面板工具调用挂起根因与修复（2026-11-05）
 
 - 系统 Python 3.14.6：`./scripts/test.ps1` **226 项离线测试全部通过**（新增 `test_reliability.py` 3 项：启动停滞看门狗在 `stall_seconds` 后终止并随错误返回 stderr 与 `Stalled` 提示、worker 进度行逐条流式转发到 `on_progress`、worker 环境剔除 `ESRI_SOFTWARE_CLASS` 且 `PYTHONIOENCODING=utf-8`；`test_foundation.py` 1 项：运行时进度转成带 `step` 的 `tool_progress` 事件）。
