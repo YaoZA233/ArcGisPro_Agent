@@ -19,6 +19,9 @@ from .analysis_tools import RASTER_TYPES
 KINDS = ("SEQUENTIAL", "QUALITATIVE", "TERRAIN", "BASE")
 CLASSIFY_METHODS = ("EQUAL_INTERVAL", "QUANTILE")
 MIN_CLASSES, MAX_CLASSES = 3, 7
+# 标注字号范围（pt）：catalog.py 的 schema 上下限直接取自这里，单一事实来源。
+LABEL_SIZES = (6, 24)
+LABEL_SIZE_DEFAULT = 9
 MAX_UNIQUE_VALUES = 10
 VALUE_CAP = 200000
 NUMERIC_FIELD_TYPES = frozenset({"Integer", "Integer64", "SmallInteger", "Float", "Double"})
@@ -288,6 +291,6 @@ def validate_label_spec(label, desc):
         raise ValueError("栅格图层没有属性字段，无法标注；如需注记请用 build_layout 的 title，"
                          "或先把栅格转成要素类。")
     _check_field(label, desc, NUMERIC_FIELD_TYPES | TEXT_FIELD_TYPES, "标注", LABELABLE_REQUIREMENT)
-    size = label.get("size", 9)
-    if not 6 <= size <= 24:
-        raise ValueError(f"标注字号必须在 6–24 pt 之间，收到 {size}。")
+    size = label.get("size", LABEL_SIZE_DEFAULT)
+    if not LABEL_SIZES[0] <= size <= LABEL_SIZES[1]:
+        raise ValueError(f"标注字号必须在 {LABEL_SIZES[0]}–{LABEL_SIZES[1]} pt 之间，收到 {size}。")

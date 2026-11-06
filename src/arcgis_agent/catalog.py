@@ -9,7 +9,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from .symbology import CLASSIFY_METHODS, MAX_CLASSES, MIN_CLASSES, PALETTE_NAMES
+from .symbology import CLASSIFY_METHODS, LABEL_SIZES, MAX_CLASSES, MIN_CLASSES, PALETTE_NAMES
 
 
 def text(description, maximum=4096, **extra):
@@ -48,7 +48,7 @@ LABEL_ITEMS = {"type": "array", "maxItems": 12, "items": {"type": "object", "add
                                                           "properties": {
                                                               "layer": text("要标注的图层，必须是 layers 里的同一个绝对路径"),
                                                               "field": text("标注取自的字段名，文本或数值类型", 64),
-                                                              "size": {"type": "integer", "minimum": 6, "maximum": 24}}}}
+                                                              "size": {"type": "integer", "minimum": LABEL_SIZES[0], "maximum": LABEL_SIZES[1]}}}}
 
 
 DATASET = text("Absolute GIS dataset path; members inside .gdb or .gpkg use the full catalog path")
@@ -348,15 +348,23 @@ def validate_call(name, arguments):
             if box["xmax"] <= box["xmin"] or box["ymax"] <= box["ymin"]:
                 raise ValueError("extent 需要满足 xmax>xmin 且 ymax>ymin")
         declared = list(arguments["layers"])
+        for what in ("styles", "labels"):
+            for entry in arguments.get(what) or []:
+                if entry["layer"] not in declared:
+                    raise ValueError(f"{what} 里的 layer「{entry['layer']}」不在 layers 中；"
+                                     f"本次 layers 是：{', '.join(declared)}。")
+        # 同一图层重复出现在 styles 或 labels 里都必须拦：JSON Schema 的 uniqueItems 管不到
+        # 对象内部，而下游按图层建字典，重复条目会被静默丢弃其一。
         styled = []
-        for entry in (arguments.get("styles") or []) + (arguments.get("labels") or []):
-            if entry["layer"] not in declared:
-                raise ValueError(f"styles/labels 里的 layer「{entry['layer']}」不在 layers 中；"
-                                 f"本次 layers 是：{', '.join(declared)}。")
         for entry in arguments.get("styles") or []:
             if entry["layer"] in styled:
                 raise ValueError(f"图层「{entry['layer']}」被符号化了两次；一个图层只能有一条 styles。")
             styled.append(entry["layer"])
+        labelled = []
+        for entry in arguments.get("labels") or []:
+            if entry["layer"] in labelled:
+                raise ValueError(f"图层「{entry['layer']}」被标注了两次；一个图层只能有一条 labels。")
+            labelled.append(entry["layer"])
     if name == "reshape_geometry":
         operation = arguments["operation"]
         if operation == "SIMPLIFY":
