@@ -408,7 +408,6 @@ def apply_renderer(arcpy, definition, plan):
     RASTER_RAMP 必须在读 definition.renderer 之前就分派出去：栅格图层的 renderer 恒为
     None（实测结论），先取 .symbol 会直接 AttributeError。分派顺序本身就是这条实测
     约束的落地，不要为了"看起来整齐"把它挪到后面。
-    apply_raster_ramp 的实现体在 Task 6 补齐；本任务的测试不触及栅格路径。
     """
     kind = plan["renderer"]
     if kind == "RASTER_RAMP":
@@ -436,6 +435,9 @@ def plan_style(arcpy, style, dataset, desc):
     kind = validate_style_spec(style, desc)
     palette = style["palette"]
     plan = {"layer": dataset, "palette": palette, "renderer": kind}
+    if kind == "RASTER_RAMP":
+        plan["colors"] = list(ramp_colors(palette))
+        return plan
     if kind == "SIMPLE":
         base = PALETTES["BASE"]
         geometry = _geometry(desc)
@@ -478,3 +480,23 @@ def plan_style(arcpy, style, dataset, desc):
     plan.update({"field": style["field"], "categories": categories, "colors": colors,
                  "unmatched": unmatched})
     return plan
+
+
+def apply_raster_ramp(arcpy, definition, plan):
+    """栅格符号化改 colorizer，不改 renderer：CIMRasterLayer.renderer 恒为 None，
+    而 arcpy.cim 里根本没有任何 CIMRaster*Renderer 类，只有 CIMRaster*Colorizer。
+    """
+    colorizer = getattr(definition, "colorizer", None)
+    if colorizer is None:
+        raise ValueError("该栅格图层没有 colorizer，无法上色；请用 describe 确认它是栅格数据集，"
+                         "而不是栅格目录或镶嵌数据集的某个子项。")
+    colors = plan["colors"]
+    ramp = arcpy.cim.CIMMultipartColorRamp()
+    segments = []
+    for index in range(len(colors) - 1):
+        segment = arcpy.cim.CIMLinearContinuousColorRamp()
+        segment.fromColor = rgb_color(arcpy, colors[index])
+        segment.toColor = rgb_color(arcpy, colors[index + 1])
+        segments.append(segment)
+    ramp.colorRamps = segments
+    colorizer.colorRamp = ramp

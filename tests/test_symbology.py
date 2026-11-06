@@ -912,5 +912,93 @@ class PlanStyleTests(unittest.TestCase):
         self.assertEqual(len(plan["bounds"]), 3)
 
 
+# ---------------------------------------------------------------------------
+# Task 6: 栅格 colorizer 多段色带。
+# 铁律 3：CIMRasterLayer.renderer 恒为 None，arcpy.cim 里没有任何 CIMRaster*Renderer，
+# 栅格上色只能改 definition.colorizer.colorRamp（CIMMultipartColorRamp，
+# 7 档色 → 6 段 CIMLinearContinuousColorRamp，相邻档用 fromColor/toColor 相接）。
+# ---------------------------------------------------------------------------
+from arcgis_agent.symbology import apply_raster_ramp
+
+
+class CimLinearContinuousColorRamp:
+    def __init__(self):
+        self.fromColor = None
+        self.toColor = None
+
+
+class CimMultipartColorRamp:
+    def __init__(self):
+        self.colorRamps = []
+        self.weights = []
+
+
+class CimRasterStretchColorizer:
+    def __init__(self):
+        self.colorRamp = None
+        self.colorScheme = ""
+
+
+class StubRasterDefinition:
+    def __init__(self):
+        self.renderer = None          # 实测：栅格图层的 renderer 恒为 None
+        self.colorizer = CimRasterStretchColorizer()
+
+
+StubCim.CIMLinearContinuousColorRamp = CimLinearContinuousColorRamp
+StubCim.CIMMultipartColorRamp = CimMultipartColorRamp
+
+
+class RasterRampTests(unittest.TestCase):
+    def plan(self, palette="ELEVATION"):
+        return {"renderer": "RASTER_RAMP", "palette": palette, "colors": ramp_colors(palette)}
+
+    def test_ramp_replaces_the_colorizer_not_the_renderer(self):
+        definition = StubRasterDefinition()
+        apply_raster_ramp(StubArcpy(), definition, self.plan())
+        self.assertIsNone(definition.renderer)
+        self.assertIsNotNone(definition.colorizer.colorRamp)
+
+    def test_seven_stops_become_six_linear_segments(self):
+        definition = StubRasterDefinition()
+        apply_raster_ramp(StubArcpy(), definition, self.plan())
+        ramp = definition.colorizer.colorRamp
+        self.assertIsInstance(ramp, CimMultipartColorRamp)
+        self.assertEqual(len(ramp.colorRamps), 6)
+
+    def test_each_segment_joins_adjacent_stops(self):
+        definition = StubRasterDefinition()
+        colors = ramp_colors("ELEVATION")
+        apply_raster_ramp(StubArcpy(), definition, self.plan())
+        for index, segment in enumerate(definition.colorizer.colorRamp.colorRamps):
+            self.assertEqual(segment.fromColor.values[:3], list(hex_rgb(colors[index])))
+            self.assertEqual(segment.toColor.values[:3], list(hex_rgb(colors[index + 1])))
+
+    def test_sequential_palettes_also_work_on_rasters(self):
+        definition = StubRasterDefinition()
+        apply_raster_ramp(StubArcpy(), definition, self.plan("BLUES"))
+        self.assertEqual(len(definition.colorizer.colorRamp.colorRamps), 6)
+
+    def test_apply_renderer_delegates_raster_plans(self):
+        definition = StubRasterDefinition()
+        apply_renderer(StubArcpy(), definition, self.plan())
+        self.assertIsNotNone(definition.colorizer.colorRamp)
+
+    def test_missing_colorizer_is_refused_rather_than_silently_skipped(self):
+        definition = StubRasterDefinition()
+        definition.colorizer = None
+        with self.assertRaises(ValueError) as caught:
+            apply_raster_ramp(StubArcpy(), definition, self.plan())
+        self.assertIn("colorizer", str(caught.exception))
+
+    def test_raster_plan_carries_seven_colors(self):
+        fake = FakeArcpy([])
+        fake.cim = StubCim()
+        plan = plan_style(fake, {"layer": "L", "palette": "ELEVATION"}, "L", raster_desc())
+        self.assertEqual(plan["renderer"], "RASTER_RAMP")
+        self.assertEqual(len(plan["colors"]), 7)
+        self.assertEqual(fake.cursor_calls, [])
+
+
 if __name__ == "__main__":
     unittest.main()
