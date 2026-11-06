@@ -101,6 +101,90 @@ def provider_state(session) -> dict:
             "key_configured": bool(client.api_key)}
 
 
+class TerminalTurn:
+    """Present one interactive turn without mixing model and tool output."""
+
+    def __init__(self, *, color: bool, width: int):
+        self.color, self.width = color, width
+        self.reasoning: list[str] = []
+        self.content: list[str] = []
+        self.step_start = 0.0
+        self.generating = False
+
+    def _heading(self, title: str) -> None:
+        label = f"── {title} "
+        line = label + "─" * max(0, min(self.width, 60) - len(label))
+        print("\n" + (f"\033[1;36m{line}\033[0m" if self.color else line), flush=True)
+
+    def _reasoning(self) -> None:
+        text = "".join(self.reasoning).strip()
+        self.reasoning.clear()
+        if text:
+            self._heading("模型思考")
+            print(render_markdown(text, color=self.color, width=self.width), flush=True)
+
+    def _content(self) -> None:
+        text = "".join(self.content).strip()
+        self.content.clear()
+        if text:
+            self._heading("模型说明")
+            print(render_markdown(text, color=self.color, width=self.width), flush=True)
+
+    def start(self) -> None:
+        print("\n正在等待模型响应…", flush=True)
+
+    def event(self, record: dict) -> None:
+        kind = record.get("event")
+        if kind == "reasoning_delta":
+            if self.content:
+                self._content()
+            self.reasoning.append(record.get("text", ""))
+        elif kind == "content_delta":
+            self._reasoning()
+            self.content.append(record.get("text", ""))
+            if not self.generating:
+                print("\n正在生成答复…", flush=True)
+                self.generating = True
+        elif kind == "tool_requested":
+            self._reasoning()
+            self._content()
+            self.generating = False
+            self.step_start = time.monotonic()
+            self._heading(f"工具 · 步骤 {record.get('step', '?')} · {record.get('tool', '')}")
+            print("等待本次授权。", flush=True)
+        elif kind == "tool_progress":
+            self._reasoning()
+            print("  运行日志：" + str(record.get("text", "")), flush=True)
+        elif kind == "tool_result":
+            elapsed = time.monotonic() - self.step_start if self.step_start else 0
+            state = "成功" if record.get("ok") else "失败"
+            print(f"\n工具结果 · {state} · {elapsed:.1f}s")
+            print(json.dumps(record.get("data", record.get("error")), ensure_ascii=False, indent=2), flush=True)
+        elif kind == "model_usage":
+            self._reasoning()
+
+    def fail(self, message: str) -> None:
+        self._reasoning()
+        self._content()
+        self._heading("提示")
+        print(message, flush=True)
+
+    def finish(self, result: dict) -> None:
+        self._reasoning()
+        # The authoritative reply can differ from streamed text on failure.
+        self.content.clear()
+        self._heading("Agent 答复")
+        print(render_markdown(result.get("reply", ""), color=self.color, width=self.width))
+        self._heading("本次用量与状态")
+        if result.get("usage_available", True):
+            usage = result.get("usage") or {}
+            print(f"输入 {usage.get('input', 0):,} tokens  ·  输出 {usage.get('output', 0):,} tokens  ·  缓存命中 {usage.get('cache_hit', 0):,}")
+        else:
+            print("Token 用量：接口未返回")
+        print(f"耗时 {result.get('elapsed_seconds', 0)}s  ·  状态 {result.get('status', '')}")
+        print("任务目录：" + str(result.get("run_dir", "")), flush=True)
+
+
 def interactive(settings: Settings, allow_writes: bool) -> int:
     session = create_session(settings)
     # Never let a GBK/ASCII console codec crash the reply; degrade to '?' instead.
@@ -205,59 +289,18 @@ def interactive(settings: Settings, allow_writes: bool) -> int:
             continue
         if not prompt:
             continue
-        stream_state = {"kind": ""}
-        content_buffer: list[str] = []
-        progress = {"started": False}
-
-        def event(record: dict) -> None:
-            kind = record["event"]
-            if kind == "tool_requested":
-                stream_state["step_start"] = time.monotonic()
-                print(f"\n  [请求工具] 步骤 {record.get('step', '?')} · {record['tool']} " +
-                      json.dumps(record["arguments"], ensure_ascii=False), flush=True)
-                stream_state["kind"] = "tool"
-            elif kind == "approval_requested":
-                print(f"  [等待授权] 步骤 {record.get('step', '?')} · {record['tool']}", flush=True)
-            elif kind == "tool_result":
-                elapsed = time.monotonic() - stream_state.get("step_start", time.monotonic())
-                print(f"  [结果] 步骤 {record.get('step', '?')} ({elapsed:.1f}s) " +
-                      json.dumps(record.get("data", record.get("error")), ensure_ascii=False), flush=True)
-            elif kind == "tool_progress":
-                print(f"    [worker] {record.get('text', '')}", flush=True)
-                stream_state["kind"] = "tool"
-            elif kind == "content_delta":
-                # Buffer the reply instead of echoing raw Markdown; the finished
-                # text is rendered once below so the user never reads raw '#/**'.
-                content_buffer.append(record.get("text", ""))
-                stream_state["kind"] = "content"
-                if color:
-                    if not progress["started"]:
-                        sys.stdout.write("\n")  # close any dangling reasoning line
-                        progress["started"] = True
-                    count = sum(len(piece) for piece in content_buffer)
-                    sys.stdout.write(f"\r\033[2m  [生成中… {count} 字]\033[0m\033[K")
-                    sys.stdout.flush()
-            elif kind == "reasoning_delta":
-                if stream_state["kind"] != "reasoning":
-                    print("\n  [模型推理] ", end="", flush=True)
-                    stream_state["kind"] = "reasoning"
-                print(record["text"], end="", flush=True)
-        print("  [思考中…]", flush=True)
+        display = TerminalTurn(color=color, width=terminal_width())
+        display.start()
         session.client.cancel_event.clear()
         try:
-            result = session.send(prompt, allow_writes=allow_writes, on_event=event, attachments=attachments, approve=terminal_approval)
+            result = session.send(prompt, allow_writes=allow_writes, on_event=display.event,
+                                  attachments=attachments, approve=terminal_approval)
         except (ValueError, OSError, DeepSeekError) as exc:
-            print("\n提示：" + str(exc))
+            display.fail(str(exc))
             continue
         attachments.clear()
-        if progress["started"]:
-            sys.stdout.write("\r\033[K" if color else "\r")  # erase the live counter
-            sys.stdout.flush()
-        print()
-        print("\033[1;32mAgent >\033[0m" if color else "Agent >")
-        print(render_markdown(result["reply"], color=color, width=width))
-        print(f"  [用量] 输入 {result['usage']['input']} / 输出 {result['usage']['output']} tokens；耗时 {result['elapsed_seconds']}s")
-        print("  [任务] " + result["status"] + " | " + result["run_dir"])
+        display.finish(result)
+
 
 
 def rpc(settings: Settings) -> int:

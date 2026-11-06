@@ -11,6 +11,7 @@ $stage = Join-Path $out ('package-' + [Guid]::NewGuid().ToString('N'))
 $install = Join-Path $stage 'Install'
 New-Item -ItemType Directory -Force -Path $install | Out-Null
 Copy-Item -LiteralPath (Join-Path $out 'ArcGISAgent.dll') -Destination $install -Force
+Copy-Item -LiteralPath (Join-Path $out 'Markdig.dll') -Destination $install -Force
 Copy-Item -LiteralPath (Join-Path $repoRoot 'addin\ArcGISAgent\Config.daml') -Destination $stage -Force
 [IO.File]::WriteAllText((Join-Path $install 'agent-home.txt'), $repoRoot, [Text.UTF8Encoding]::new($false))
 $zip = Join-Path $out 'ArcGISAgent.zip'

@@ -52,6 +52,24 @@ class MarkdownRenderTests(unittest.TestCase):
         # Both data rows must share the same display width for correct alignment.
         self.assertEqual(_display_width(rows[0]), _display_width(rows[1]))
 
+    def test_chinese_paragraphs_and_long_lines_wrap_without_loss(self):
+        text = "中文" * 35
+        out = render_markdown(text + "\n\n第二段", color=False, width=20)
+        self.assertEqual("".join(out.split("\n\n")[0].splitlines()), text)
+        self.assertIn("\n\n第二段", out)
+        self.assertTrue(all(_display_width(line) <= 20 for line in out.splitlines()))
+
+    def test_narrow_table_wraps_instead_of_truncating(self):
+        value = "长路径内容" * 8
+        out = render_markdown("| 名称 | 值 |\n| --- | --- |\n| 路径 | " + value + " |", color=False, width=24)
+        self.assertNotIn("…", out)
+        self.assertEqual("".join(line.split("|")[2].strip() for line in out.splitlines() if line.startswith("|") and "名称" not in line), value)
+
+    def test_table_escaped_pipe_is_not_a_column(self):
+        out = render_markdown("| A | B |\n| --- | --- |\n| x\\|y | z |", color=False, width=40)
+        self.assertIn("x|y", out)
+        self.assertIn("z", out)
+
     def test_display_width_counts_cjk_as_two(self):
         self.assertEqual(_display_width("流域"), 4)
         self.assertEqual(_display_width("ab"), 2)

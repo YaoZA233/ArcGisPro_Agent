@@ -1,5 +1,20 @@
 # 更新日志
 
+## 2026-11-06：整理 CLI 对话输出和 Markdown 排版
+
+- 交互式对话按模型思考、模型说明、工具步骤与结果、最终答复及用量状态分区；授权框集中展示操作、影响、参数与预计输出，保留逐次确认和默认拒绝。未返回用量时明确显示未知。
+- 终端 Markdown 保留段落和原始换行，中文长行与列表按显示宽度折行；宽表格改为折行而非截断，支持转义竖线。非终端输出不使用 ANSI 样式。
+- 影响 `src/arcgis_agent/interfaces.py`、`approvals.py`、`mdrender.py`、`tests/test_terminal_output.py`、`tests/test_mdrender.py` 和 README。
+- 验证：`./scripts/test.ps1` 离线测试通过，覆盖交错的推理、工具结果、表格、授权默认拒绝和缺失用量。未连接真实模型或执行真实 ArcPy 工具。
+- 限制：为了按完整片段渲染 Markdown，推理与正文不逐 token 显示；CLI 仍使用无第三方依赖的简化 Markdown 解析器，不覆盖所有扩展方言。
+
+## 2026-11-06：修复 Agent 面板 Markdown 输出
+
+- 面板流式答复、完成答复与历史答复使用同一 Markdig 解析流程，支持常见 CommonMark 块和行内嵌套、表格、任务列表、删除线和自动链接；表格单元格保留格式，宽表格可横向滚动。原始答复复制和导出保持不变。
+- 涉及 `addin/ArcGISAgent/MessageRenderer.cs`、`AgentView.xaml.cs`、两个 C# 项目文件、预览自检和 `scripts/build-addin.ps1`；插件包包含 Markdig 依赖。
+- 验证：`./scripts/test.ps1` 458 项离线测试通过；WPF 预览 Markdown 自检与截图通过；插件 Release 构建和打包通过。未在 ArcGIS Pro 内安装或交互验证。
+- 限制：原始 HTML 作为文字显示，图片以说明及地址显示、链接显示地址；不支持所有 Markdown 方言、数学公式或图表扩展。终端渲染仍为独立的简化实现。
+
 按功能批次记录具体改动、涉及模块、验证结果和当前限制。项目版本当前保持 `0.1.0`，以下新增能力尚未单独发布版本。
 
 ## 2026-11-06：出图符号化与标注（预设色板 + 分级/唯一值 + Arcade 标注）

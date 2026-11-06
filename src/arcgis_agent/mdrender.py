@@ -158,7 +158,8 @@ def _split_row(line: str) -> List[str]:
         line = line[1:]
     if line.endswith("|"):
         line = line[:-1]
-    return [cell.strip() for cell in line.split("|")]
+    # An escaped pipe belongs to a cell, not to the table structure.
+    return [cell.strip().replace(r"\|", "|") for cell in re.split(r"(?<!\\)\|", line)]
 
 
 def render_markdown(markdown: str, *, color: bool | None = None, width: int | None = None) -> str:
@@ -248,7 +249,7 @@ def render_markdown(markdown: str, *, color: bool | None = None, width: int | No
             index += 1
         out.append(_render_paragraph(para, color, width))
 
-    return "\n".join(block for block in out if block is not None).rstrip("\n")
+    return "\n\n".join(block for block in out if block is not None).rstrip("\n")
 
 
 def _is_block_start(line: str, index: int, lines: List[str]) -> bool:
@@ -293,11 +294,12 @@ def _render_code(code_lines: List[str], lang: str, color: bool, width: int) -> s
 
 
 def _render_quote(block: List[str], color: bool, width: int) -> str:
-    text = " ".join(_inline_plain(b) if not color else b for b in block).strip()
-    wrapped = textwrap.wrap(text, width=max(10, width - 4)) or [""]
-    if not color:
-        return "\n".join("> " + _inline_plain(w) for w in wrapped)
-    return "\n".join(f"{DIM}▐{RESET} {ITALIC}{GREY}{_inline_ansi(w)}{RESET}" for w in wrapped)
+    prefix = f"{DIM}▐{RESET} " if color else "> "
+    result = []
+    for line in block:
+        for part in _wrap_display(_render_inline(line, color), max(1, width - 2)):
+            result.append(prefix + part)
+    return "\n".join(result)
 
 
 def _render_list(lines: List[str], start: int, color: bool, width: int) -> Tuple[str, int]:
@@ -329,8 +331,9 @@ def _render_list(lines: List[str], start: int, color: bool, width: int) -> Tuple
         marker_str = f"{CYAN}{marker}{RESET}" if color else marker
         body = _render_inline(text, color)
         hanging = len(pad) + len(marker) + 1
-        first = f"{pad}{marker_str} {body}"
-        rendered.append(first)
+        wrapped = _wrap_display(body, max(1, width - hanging))
+        rendered.append(f"{pad}{marker_str} {wrapped[0]}")
+        rendered.extend(" " * hanging + part for part in wrapped[1:])
         index += 1
         # Fold lazily-continued lines (indented, not a new item) into this item.
         while index < total and lines[index].strip() and not _is_block_start(lines[index], index, lines) \
@@ -341,85 +344,55 @@ def _render_list(lines: List[str], start: int, color: bool, width: int) -> Tuple
     return "\n".join(rendered), index
 
 
+def _wrap_display(text: str, width: int) -> List[str]:
+    """Wrap by terminal columns without losing CJK, long paths or ANSI styles."""
+    width = max(1, width)
+    parts = re.split(r"(\x1b\[[0-9;]*m)", text)
+    lines: List[str] = []
+    current = ""
+    used = 0
+    for part in parts:
+        if part.startswith("\x1b["):
+            current += part
+            continue
+        for ch in part:
+            columns = 0 if unicodedata.combining(ch) else (2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1)
+            if used and used + columns > width:
+                lines.append(current)
+                current, used = "", 0
+            current += ch
+            used += columns
+    if current or not lines:
+        lines.append(current)
+    return lines
+
+
 def _render_table(table_lines: List[str], color: bool, width: int) -> str:
     rows = [_split_row(line) for line in table_lines]
-    if not rows:
-        return ""
     cols = max(len(row) for row in rows)
     rows = [row + [""] * (cols - len(row)) for row in rows]
     plain = [[_inline_plain(cell) for cell in row] for row in rows]
-    widths = [max(_display_width(plain[r][c]) for r in range(len(plain))) for c in range(cols)]
-    # Shrink columns proportionally if the table exceeds the available width.
-    budget = width - (3 * cols + 1)
-    if budget > 0 and sum(widths) > budget:
-        scale = budget / sum(widths)
-        widths = [max(3, int(w * scale)) for w in widths]
-
-    def cell_text(c: int, text: str) -> str:
-        return _clip_display(text, widths[c])
+    widths = [max(1, max(_display_width(row[c]) for row in plain)) for c in range(cols)]
+    budget = max(cols, width - (3 * cols + 1))
+    while sum(widths) > budget and max(widths) > 1:
+        widest = widths.index(max(widths))
+        widths[widest] -= 1
 
     def pad(text: str, target: int) -> str:
         return text + " " * max(0, target - _display_width(text))
 
-    def plain_row(cells: List[str]) -> str:
-        parts = [" " + pad(cell_text(c, cells[c]), widths[c]) + " " for c in range(cols)]
-        return "|" + "|".join(parts) + "|"
-
     out: List[str] = []
-    if color:
-        edge = f"{DIM}│{RESET}"
-        head = []
-        for c in range(cols):
-            text = cell_text(c, plain[0][c])
-            head.append(f" {BOLD}{text}{RESET} " + " " * max(0, widths[c] - _display_width(text)))
-        out.append(edge + edge.join(head) + edge)
-        out.append(f"{DIM}├{'┼'.join('─' * (w + 2) for w in widths)}┤{RESET}")
-        for row in plain[1:]:
-            body = []
-            for c in range(cols):
-                text = cell_text(c, row[c])
-                body.append(" " + pad(text, widths[c]) + " ")
-            out.append(edge + edge.join(body) + edge)
-    else:
-        out.append(plain_row(plain[0]))
-        out.append("+" + "+".join("-" * (w + 2) for w in widths) + "+")
-        for row in plain[1:]:
-            out.append(plain_row(row))
+    for row_index, row in enumerate(plain):
+        cells = [_wrap_display(value, widths[c]) for c, value in enumerate(row)]
+        for n in range(max(len(cell) for cell in cells)):
+            parts = [" " + pad(cells[c][n] if n < len(cells[c]) else "", widths[c]) + " " for c in range(cols)]
+            line = "|" + "|".join(parts) + "|"
+            out.append(f"{BOLD}{line}{RESET}" if color and row_index == 0 else line)
+        if row_index == 0:
+            out.append("+" + "+".join("-" * (w + 2) for w in widths) + "+")
     return "\n".join(out)
 
 
 def _render_paragraph(para: List[str], color: bool, width: int) -> str:
-    joined = " ".join(p.strip() for p in para)
-    if not color:
-        wrapped = textwrap.wrap(_inline_plain(joined), width=width,
-                                break_long_words=False, break_on_hyphens=False)
-        return "\n".join(wrapped or [""])
-    return "\n".join(_wrap_ansi(joined, width))
-
-
-def _wrap_ansi(text: str, width: int) -> List[str]:
-    """Wrap a line containing inline Markdown on word boundaries, then style it.
-
-    Wrapping measures the visible length (markers excluded) so ``**`` and back
-    ticks do not push lines past the terminal width; each wrapped line is styled
-    independently, which keeps the common case correct without a full parser.
-    """
-    words = text.split(" ")
-    lines: List[str] = []
-    current = ""
-    current_len = 0
-    for word in words:
-        wlen = _display_width(_inline_plain(word))
-        if current and current_len + 1 + wlen > width:
-            lines.append(_inline_ansi(current))
-            current = word
-            current_len = wlen
-        else:
-            if current:
-                current += " "
-                current_len += 1
-            current += word
-            current_len += wlen
-    if current:
-        lines.append(_inline_ansi(current))
-    return lines or [""]
+    # Preserve explicit source line breaks, including model-generated CJK text.
+    return "\n".join(line for part in para for line in _wrap_display(_render_inline(part.strip(), color), width))

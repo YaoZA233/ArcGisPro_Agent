@@ -11,15 +11,23 @@ from .deepseek import Cancelled
 
 
 def terminal_approval(request: dict) -> dict:
-    print("\n[等待本次授权] " + request["title"], flush=True)
-    print(request["effect"], flush=True)
-    print(json.dumps(request["arguments"], ensure_ascii=False, indent=2), flush=True)
+    print("\n┌─ 本次操作需要确认 ─────────────────────", flush=True)
+    print("  操作：" + request["title"], flush=True)
+    print("  影响：" + request["effect"], flush=True)
+    print("  参数：", flush=True)
+    for line in json.dumps(request["arguments"], ensure_ascii=False, indent=2).splitlines():
+        print("    " + line, flush=True)
     if request.get("selection"):
-        print("选择集：" + json.dumps(request["selection"], ensure_ascii=False, indent=2), flush=True)
+        print("  选择集：", flush=True)
+        for line in json.dumps(request["selection"], ensure_ascii=False, indent=2).splitlines():
+            print("    " + line, flush=True)
     if request.get("expected_outputs"):
-        print("输出：" + "\n".join(request["expected_outputs"]), flush=True)
+        print("  预计输出：", flush=True)
+        for path in request["expected_outputs"]:
+            print("    " + str(path), flush=True)
+    print("└────────────────────────────────────────", flush=True)
     try:
-        answer = input("允许本次操作？[y=允许 / n=拒绝 / c=取消，默认拒绝] ").strip().lower()
+        answer = input("允许本次操作？ [y 允许 / n 拒绝 / c 取消；回车拒绝] ").strip().lower()
     except (EOFError, KeyboardInterrupt):
         return {"decision": "cancel"}
     return {"decision": "allow" if answer in ("y", "yes") else "cancel" if answer == "c" else "deny",

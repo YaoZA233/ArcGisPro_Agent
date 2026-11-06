@@ -44,6 +44,9 @@
 .\scripts\agent.ps1 doctor
 ```
 
+CLI 将模型思考、工具确认与结果、最终答复和 token 用量分区显示。答复按终端宽度排版常见 Markdown，宽表格会折行保留完整内容；输出不是终端或设置 `NO_COLOR` 时使用无 ANSI 控制码的文本。为完整解析 Markdown，思考和正文在本次模型响应的相应片段结束时显示，生成期间显示等待提示。
+
+
 其他常用入口：
 
 ```powershell

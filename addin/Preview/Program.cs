@@ -17,6 +17,18 @@ internal static class Program
         var app = new Application();
         var view = new AgentView();
         var window = new Window { Title = "GIS Agent · 界面验证", Width = 450, Height = 920, MinWidth = 325, MinHeight = 600, Content = view, WindowStartupLocation = WindowStartupLocation.CenterScreen };
+        if (args.Length > 0 && args[0] == "--test-markdown")
+        {
+            var rendered = MessageRenderer.Create("# 标题\n\n| 列 | 值 |\n| --- | --- |\n| **粗体** | a\\|b |\n\n- [x] 完成\n\n> *引用*\n\n```python\nprint(1)\n```", view);
+            var blocks = rendered.Document.Blocks.Cast<System.Windows.Documents.Block>().ToList();
+            if (!blocks.OfType<System.Windows.Documents.BlockUIContainer>().Any(b => b.Child is ScrollViewer)) throw new Exception("Missing table");
+            var scroll = (ScrollViewer)blocks.OfType<System.Windows.Documents.BlockUIContainer>().First(b => b.Child is ScrollViewer).Child;
+            var grid = (Grid)scroll.Content;
+            var cells = grid.Children.OfType<Border>().Select(b => (TextBlock)b.Child).ToList();
+            if (cells.Count != 4 || !cells[2].Inlines.OfType<System.Windows.Documents.Span>().Any() || !new System.Windows.Documents.TextRange(cells[3].ContentStart, cells[3].ContentEnd).Text.Contains("a|b")) throw new Exception("Table cells or inline formatting failed");
+            if (!blocks.OfType<System.Windows.Documents.List>().Any() || !blocks.OfType<System.Windows.Documents.Section>().Any() || !blocks.OfType<System.Windows.Documents.BlockUIContainer>().Any(b => b.Child is StackPanel)) throw new Exception("Missing Markdown blocks");
+            return;
+        }
         bool captureSettings = args.Length >= 2 && args[0] == "--capture-settings";
         bool captureSelection = args.Length >= 2 && args[0] == "--capture-selection";
         bool captureApproval = args.Length >= 2 && (args[0] == "--capture-approval" || captureSelection);

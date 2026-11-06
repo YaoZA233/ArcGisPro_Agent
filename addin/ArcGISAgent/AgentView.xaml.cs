@@ -25,7 +25,8 @@ public partial class AgentView : UserControl
     private string sessionId = "", latestRun = "";
     private readonly List<string> attachments = new();
     private readonly StringBuilder export = new(), answerBuffer = new(), reasoningBuffer = new();
-    private TextBox? liveAnswer, liveReasoning;
+    private TextBox? liveReasoning;
+    private ContentControl? liveAnswer;
     private StackPanel? liveCard;
     private Expander? reasoningPanel;
     private StackPanel? liveSteps;
@@ -445,7 +446,7 @@ public partial class AgentView : UserControl
         {
             FlushStreaming();
             string message = cancelling ? "任务已停止。可从历史记录继续已保存的对话；部分 GIS 成果可能保留。" : ex.Message;
-            if (liveAnswer is not null) liveAnswer.Text = message;
+            if (liveAnswer is not null) liveAnswer.Content = MessageRenderer.Create(message, this);
             StatusText.Text = cancelling ? "已停止" : "任务未完成";
             export.AppendLine("## 提示\n\n" + message + "\n");
             if (!cancelling) Notice(message);
@@ -485,7 +486,7 @@ public partial class AgentView : UserControl
         reasoningPanel.SetResourceReference(ForegroundProperty, "Muted");
         reasoningPanel.Collapsed += (_, _) => reasoningCollapsed = true;
         liveCard.Children.Add(reasoningPanel);
-        liveAnswer = Selectable("正在理解任务…");
+        liveAnswer = new ContentControl { Content = MessageRenderer.Create("正在理解任务…", this) };
         liveCard.Children.Add(liveAnswer);
     }
 
@@ -588,7 +589,7 @@ public partial class AgentView : UserControl
     private void FlushStreaming()
     {
         bool follow = IsFollowing();
-        if (liveAnswer is not null && answerBuffer.Length != renderedAnswer) { liveAnswer.Text = answerBuffer.ToString(); renderedAnswer = answerBuffer.Length; }
+        if (liveAnswer is not null && answerBuffer.Length != renderedAnswer) { liveAnswer.Content = MessageRenderer.Create(answerBuffer.ToString(), this); renderedAnswer = answerBuffer.Length; }
         if (liveReasoning is not null && reasoningBuffer.Length != renderedReasoning) { liveReasoning.Text = reasoningBuffer.ToString(); renderedReasoning = reasoningBuffer.Length; }
         if (clock.IsRunning) ElapsedText.Text = clock.Elapsed.TotalSeconds.ToString("F1") + "s";
         if (follow) ScrollEnd();
@@ -752,7 +753,7 @@ public partial class AgentView : UserControl
     {
         var result = await RequestAsync(new { type = "reset" }, "reset");
         sessionId = Text(result, "session_id"); Transcript.Children.Clear(); export.Clear(); AddWelcome();
-        answerBuffer.Clear(); reasoningBuffer.Clear(); liveAnswer = liveReasoning = null;
+        answerBuffer.Clear(); reasoningBuffer.Clear(); liveAnswer = null; liveReasoning = null;
         liveSteps = null; activeStep = null;
         attachments.Clear(); RenderAttachments(); InputTokens.Text = OutputTokens.Text = CacheTokens.Text = ElapsedText.Text = "—";
         HistoryPanel.Visibility = Visibility.Collapsed; StatusText.Text = "新对话 · 准备就绪";
