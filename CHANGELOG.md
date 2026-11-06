@@ -2,6 +2,15 @@
 
 按功能批次记录具体改动、涉及模块、验证结果和当前限制。项目版本当前保持 `0.1.0`，以下新增能力尚未单独发布版本。
 
+## 2026-11-06：出图符号化与标注（预设色板 + 分级/唯一值 + Arcade 标注）
+
+- 能力：`build_layout` 新增两个可选参数 `styles`（每层 `{layer, palette, field?, classes?, method?}`）与 `labels`（每层 `{layer, field, size?}`），由 **9 个预设色板**驱动符号化与 Arcade 标注，返回新增 `symbology` 段（实际 renderer、色板、分级断点与色值、唯一值类别、`unmatched` 未配到语义色的地类名、`sampled` 是否因超过 20 万值抽样近似）与 `labels` 段。色板：`BLUES`/`GREENS`/`REDS`/`RD_BU`（SEQUENTIAL 连续）、`CATEGORY10`/`LAND_USE`（QUALITATIVE，按地类名配语义色）、`ELEVATION`/`HILLSHADE_GRAY`（TERRAIN）、`BASE`（示意图）。**kind × 数据类型兼容矩阵**：栅格接受 SEQUENTIAL+TERRAIN 共 6 板，一律走连续多段色带（RASTER_RAMP，禁 `field`）；矢量接受 SEQUENTIAL→分级色彩、QUALITATIVE→唯一值、BASE→简单符号 共 7 板，TERRAIN 用于矢量、QUALITATIVE/BASE 用于栅格均被拒。分级 `classes` 默认 5、限 3–7，`method` 默认 `EQUAL_INTERVAL`、仅 `EQUAL_INTERVAL`/`QUANTILE`；唯一值类别上限 10，超出即拒；标注字号默认 9、限 6–24，栅格不能标注。轮廓固定不开放（分级白线 #FFFFFF 0.2、唯一值深灰线 #666666 0.4）。配色不开放自由调色，**换配色需重建工程**（`output_name` 不得与已有成果重名）。
+- 图名颜色修正（`cartography.py` 的 `_add_title`）：改为写 `CIMRGBColor().values = [0, 0, 0, 100]`。此前用 `red=`/`green=`/`blue=` 关键字设色会被运行时静默忽略。
+- 影响模块：新增 `symbology.py`（纯 CIM definition 原地构造，不碰工程文件、不做 IO、不决定输出路径；字段值读取经调用方注入的 arcpy 游标句柄委托）；`catalog.py` 加 `styles`/`labels` schema 与跨参数校验（同一图层重复符号化/标注拒绝）；`cartography.py` 接线并把全部符号化/标注拒绝前移到复制工程模板之前；`interpolation_surface_map`/`csv_points_to_density_map` 两个技能包的 `build_layout` 步骤默认出符号正确的图（晕渲 ELEVATION、等高线 BASE、密度 REDS）；`prompts/system.md` 出图章节新增色板选型、参数禁忌与如实汇报纪律。
+- 真机 CIM 实测行为（本机 Pro 3.5.2 实测，已落进 `symbology.py` 实现与注释，后续改动勿凭记忆违反）：① `CIMRGBColor` 的颜色只存在 `values=[r,g,b,alpha]`，`red=`/`green=`/`blue=` 关键字被静默忽略并渲成灰；② 从零构造的符号会落盘但完全不渲染，必须 `copy.deepcopy` 运行时生成的默认符号再改色；③ 栅格符号化改 `definition.colorizer`，`CIMRasterLayer.renderer` 恒为 `None`（arcpy.cim 内根本没有 CIMRaster\*Renderer 类），故 RASTER_RAMP 分派必须在读 `.renderer` 之前，否则 AttributeError；④ 容器属性名：分级是 `breaks`（`classBreaks` 赋值被静默丢弃）、唯一值是 `groups`→中间层 `CIMUniqueValueGroup.classes`（直接赋 `classes` 被丢弃）、栅格色带是 `CIMMultipartColorRamp.colorRamps`；⑤ 标注改运行时默认那个 `labelClass`（整列表替换会落盘但零字渲染），真正生效的字号是 `CIMTextSymbol.height`（`fontSize` 回读缺失），并需另置 `labelVisibility` 为真。
+- 验证：离线 `PYTHONPATH=src python -m unittest discover -s tests` 全绿 **454 项、退出码 0**（本功能新增 `tests/test_symbology.py` **114 项**：色板常量完整性、断点与唯一值计算、样式与标注校验、catalog schema 与跨参数校验、CIM 助手与矢量/栅格 renderer、Arcade 标注，另含 cartography 接线与技能包 `styles` 契约用例）；提示词实测 **4448 字符 < 8000**。真机 Pro Python 3.11 运行 `scripts/smoke_symbology.py` 两次独立运行 **41 项检查全部通过**、9 条拒绝路径各返回预期中文错误且零残留，合成 fixture 仅写入 `workspace/smoke/symbology_<uuid>`（详见 `docs/validation.md`）。
+- 已知限制：栅格分级（直方图拉伸）未实现，但已记录 `colorizer.stretchStats.histogram` 可作为将来实现入口；标注避让（防重叠）为最小实现，仅设表达式与字号，不做冲突消解；色板观感未经制图专业评审；换配色需重建工程，不能在已有 `.aprx` 上原地改色板；`LAND_USE` 语义色按关键词组顺序取首个命中（"水浇地""湿地"须排在水体组之前，否则静默错配），未命中落兜底灰并经 `unmatched` 回报。
+
 ## 2026-11-06：Agent 失败自纠与更长多步任务（控制流、可配置预算与提示词纪律）
 
 - 本条合并本功能尚未提交的 Task 2 / Task 3 记录，并补全 Task 1 控制流与 Task 4 文档；下方既有历史不变。根因是 `agent.py` 在工具失败后立即退出，既有失败观察回流尚未给模型纠错机会。

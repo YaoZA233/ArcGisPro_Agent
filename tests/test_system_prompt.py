@@ -35,6 +35,10 @@ REQUIRED_MARKERS = (
     "说明执行计划",                   # plan before multi-step execution
     "不同的纠正动作",                 # diagnose failures and change approach
     "绝不把技术错误",                 # no raw handoff of fixable errors
+    "styles",                         # layout symbology palettes
+    "色板",                           # palette selection guidance
+    "labels",                         # layer labelling
+    "重建工程",                       # palette change requires a rebuilt project
 )
 
 

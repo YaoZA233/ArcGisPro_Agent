@@ -23,7 +23,7 @@
 | [执行真实 GIS 任务](#执行真实-gis-任务) | JSON 计划与任务目录结构 |
 | [配置](#配置) | 本地覆盖、解释器发现、系统提示词 |
 | [仓库结构](#仓库结构) | 目录职责 |
-| [验证与测试](#验证与测试) | 328 项离线测试、ArcPy 冒烟说明 |
+| [验证与测试](#验证与测试) | 454 项离线测试、ArcPy 冒烟说明 |
 | [安全与隐私](#安全与隐私) | 密钥存放、数据流向 |
 | [当前边界与后续](#当前边界与后续) | 已知限制 |
 
@@ -231,9 +231,9 @@ workspace/runs/<UTC时间_唯一ID>/
 
 ## 验证与测试
 
-328 项离线测试（本批较基线 287 项新增 41 项）覆盖类型化工具参数、逐次授权、单次写入许可、拒绝/取消/断线、授权响应重放、有界循环、任务留痕、worker 协议异常与恢复、多模型协议与子进程协议、出图流程、出图范围单位与坐标系一致性、只读导出、技能包校验、工具事件步骤编号、worker 进度流与启动停滞看门狗、自主数据发现、长期记忆增删去重与上限、未完成轮次的历史闭合、记忆注入与会话恢复，以及失败自纠、连续失败预算与成功清零、失败批次重新规划、终止边界、配置接线与提示词纪律。
+454 项离线测试（出图符号化功能较上一批次 328 项新增 126 项：`test_symbology` 114 项，另含 cartography 接线与技能包 `styles` 用例）覆盖类型化工具参数、逐次授权、单次写入许可、拒绝/取消/断线、授权响应重放、有界循环、任务留痕、worker 协议异常与恢复、多模型协议与子进程协议、出图流程、出图范围单位与坐标系一致性、只读导出、技能包校验、工具事件步骤编号、worker 进度流与启动停滞看门狗、自主数据发现、长期记忆增删去重与上限、未完成轮次的历史闭合、记忆注入与会话恢复、失败自纠、连续失败预算与成功清零、失败批次重新规划、终止边界、配置接线与提示词纪律，以及预设色板符号化、分级与唯一值计算、样式与标注校验、catalog 跨参数校验、CIM 矢量/栅格 renderer 与 Arcade 标注、技能包符号化契约。
 
-本批最终离线验证（主控已执行）：系统 Python **3.14.6** 经 `scripts/test.ps1`（**6.635s**）、已安装的 Pro Python **3.11.11** 经 `PYTHONPATH=src` 下的 `python -m unittest discover -s tests -v`（**6.939s**），均为 **328/328 通过、退出码 0**；提示词实测 **3709 字符**（上限 8000）。完整命令与本地日志位置见 [CHANGELOG](CHANGELOG.md)。本次文档续作不重跑套件，整分支审查仍待完成。[CI](.github/workflows/tests.yml) 配置 Python 3.11 / 3.14 矩阵，云端不依赖 ArcGIS，未据此声称本批云端运行通过。本批未执行真实 ArcPy（含许可证核验或 GIS 冒烟）、在线模型/API 或 GIS 业务验收；用 Pro Python 运行离线测试不等于有许可证的 ArcPy 冒烟。以下是真实验证的运行说明，历史结果不代替本批验证。
+离线验证（本次文档同步已重跑）：系统 Python **3.14.6** 经 `PYTHONPATH=src python -m unittest discover -s tests` **454/454 通过、退出码 0**（含 `test_symbology` 114 项），提示词 `## 出图` 章节扩充后实测 **4448 字符**（上限 8000）。真机冒烟：Pro Python **3.11.11** 运行 `scripts/smoke_symbology.py`（两次独立运行 **41 项检查全部通过**、9 条拒绝路径零残留）与既有 `scripts/smoke_cartography.py`，明细见 [验证记录](docs/validation.md)。上一批次（Agent 失败自纠）的系统 Python `scripts/test.ps1`（**6.635s**）与 Pro Python `discover`（**6.939s**）记录均为 **328/328 通过**、提示词当时 **3709 字符**。完整命令与本地日志位置见 [CHANGELOG](CHANGELOG.md)。[CI](.github/workflows/tests.yml) 配置 Python 3.11 / 3.14 矩阵，云端不依赖 ArcGIS，未据此声称本批云端运行通过。未执行在线模型/API 端到端对话或 GIS 业务层面验收；用 Pro Python 运行离线测试不等于有许可证的 ArcPy 冒烟，冒烟通过也不等于配色观感或分析结论业务正确；整分支审查仍待完成。以下是真实验证的运行说明，历史结果不代替本批验证。
 
 ```powershell
 .\scripts\test.ps1
@@ -249,7 +249,7 @@ workspace/runs/<UTC时间_唯一ID>/
 
 `scripts/smoke_gis_tools.py` 在独立人工数据目录验证 20 个真实 ArcPy 工具及原始数据未变、禁止覆盖。`scripts/smoke_agent_tools.py <人工数据目录>` 使用已配置模型验证“检查 → 筛选 → 缓冲 → 统计”的完整流程，产生 API 用量。这些 fixture 脚本的测试授权回调只允许其人工数据根目录内的操作，产品入口仍逐次交由用户确认。
 
-出图工具另有 `scripts/smoke_cartography.py`，同样用 Pro Python 运行。它在 `workspace/smoke/cartography_<唯一ID>` 新建人工面要素、投影面、栅格和空表，经独立 ArcPy 子进程调用 `build_layout` 与 `export_layout`，核对生成的 `.aprx`、PNG/JPEG/PDF/TIFF/SVG 成果、导出前后工程文件摘要不变（只读导出）、`project_info` 返回的布局清单、导出图的**非白像素占比**（证明图幅真的渲染出数据，而不是一张空图），以及禁止覆盖、无几何图层、坐标系不一致、地理坐标系配米制范围、未知布局、工程不存在这些拒绝路径和被拒调用不留残留。它不打开也不修改你已有的工程。
+出图工具另有 `scripts/smoke_cartography.py`，同样用 Pro Python 运行。它在 `workspace/smoke/cartography_<唯一ID>` 新建人工面要素、投影面、栅格和空表，经独立 ArcPy 子进程调用 `build_layout` 与 `export_layout`，核对生成的 `.aprx`、PNG/JPEG/PDF/TIFF/SVG 成果、导出前后工程文件摘要不变（只读导出）、`project_info` 返回的布局清单、导出图的**非白像素占比**（证明图幅真的渲染出数据，而不是一张空图），以及禁止覆盖、无几何图层、坐标系不一致、地理坐标系配米制范围、未知布局、工程不存在这些拒绝路径和被拒调用不留残留。它不打开也不修改你已有的工程。符号化另有 `scripts/smoke_symbology.py`，同样用 Pro Python 运行：它在 `workspace/smoke/symbology_<唯一ID>` 的合成栅格与矢量上按预设色板建分级色彩、唯一值、栅格多段色带与 Arcade 标注，用导出图像素取样证明色板**真的落色**、分级断点归属正确（41 项检查），并覆盖色板与数据类型不匹配、字段类型不对、分级参数越界、唯一值超 10 类、栅格标注等 9 条拒绝路径且零残留。
 
 `scripts/smoke_toolbox.py` 默认只验证工具箱发现，返回 `executed: false`；加 `--interactive` 才执行计划并弹出逐次确认框。`scripts/smoke_chat.py` 的真实工具步骤需要终端确认。具体测试结果及未验证项见 [验证记录](docs/validation.md)。
 

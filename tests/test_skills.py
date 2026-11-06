@@ -199,5 +199,21 @@ class SkillToolExecution(unittest.TestCase):
         self.assertEqual(BUILTIN_DIR.parent.name, "arcgis_agent")
 
 
+class SkillSymbologyTests(unittest.TestCase):
+    def test_map_skills_declare_symbology(self):
+        packs = load_skills()
+        for name in ("interpolation_surface_map", "csv_points_to_density_map"):
+            self.assertIn(name, packs)
+            build = next(step for step in packs[name]["steps"] if step["tool"] == "build_layout")
+            self.assertIn("styles", build["arguments"], name)
+            for style in build["arguments"]["styles"]:
+                self.assertIn("layer", style, name)
+                self.assertIn("palette", style, name)
+
+    def test_skill_packs_still_pass_the_loader_validation(self):
+        # load_skills() 内部对每个包跑 validate_skill；新加的 styles 步骤必须仍合法。
+        self.assertTrue(load_skills())
+
+
 if __name__ == "__main__":
     unittest.main()

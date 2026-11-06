@@ -16,13 +16,14 @@
     {"tool": "interpolate_surface", "arguments": {"dataset": "{{params.points}}", "value_field": "{{params.value_field}}", "method": "IDW", "cell_size": "{{params.cell_size}}", "power": 2, "output_name": "surface"}, "note": "需要地统计趋势时可改 KRIGING 并给 variogram"},
     {"tool": "contour_lines", "arguments": {"dataset": "{{steps.surface.output}}", "interval": "{{params.interval}}", "output_name": "contours"}, "note": "等高线来自插值表面"},
     {"tool": "hillshade", "arguments": {"dataset": "{{steps.surface.output}}", "output_name": "shade"}, "note": "地形阴影做底图"},
-    {"tool": "build_layout", "arguments": {"title": "{{params.title}}", "layers": ["{{steps.shade.output}}", "{{steps.contours.output}}"], "output_name": "surface_map"}, "note": "extent 省略时自动取图层范围并集；坐标系不一致会被拒绝"},
+    {"tool": "build_layout", "arguments": {"title": "{{params.title}}", "layers": ["{{steps.shade.output}}", "{{steps.contours.output}}"], "output_name": "surface_map", "styles": [{"layer": "{{steps.shade.output}}", "palette": "ELEVATION"}, {"layer": "{{steps.contours.output}}", "palette": "BASE"}]}, "note": "extent 省略时自动取图层范围并集；坐标系不一致会被拒绝；晕渲栅格用 ELEVATION，等高线用 BASE"},
     {"tool": "export_layout", "arguments": {"project": "{{steps.surface_map.project}}", "layout": "{{steps.surface_map.layout}}", "format": "PNG", "output_name": "surface_map_png", "dpi": 300}, "note": "project/layout 必须来自 build_layout 的真实返回"}
   ],
   "verification": "确认导出图片文件存在且非空；向用户报告 surface、contours、shade、aprx 与图片的完整路径。出图成功不等于插值方法业务正确，提醒用户核对值域与采样密度。",
   "pitfalls": [
     "cell_size/interval 填 300 之类的米制数值到地理坐标系数据会触发 ERROR 999999",
     "IDW 用 power，KRIGING 用 variogram，两者互斥",
-    "build_layout 新建独立工程，不改动用户工程；export_layout 只读打开、从不保存"
+    "build_layout 新建独立工程，不改动用户工程；export_layout 只读打开、从不保存",
+    "色板与数据类型不匹配会被拒绝：ELEVATION/HILLSHADE_GRAY 只给栅格，CATEGORY10/LAND_USE/BASE 只给矢量"
   ]
 }
