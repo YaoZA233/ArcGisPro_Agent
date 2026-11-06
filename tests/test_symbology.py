@@ -4,9 +4,10 @@ from __future__ import annotations
 import unittest
 
 from arcgis_agent.symbology import (CLASSIFY_METHODS, KINDS, MAX_CLASSES, MAX_UNIQUE_VALUES,
-                                    MIN_CLASSES, OUTLINES, PALETTE_NAMES, PALETTES, VALUE_CAP,
-                                    build_classes, collect_categories, collect_values, hex_rgb,
-                                    land_use_color, palette_colors, ramp_colors)
+                                    MIN_CLASSES, OUTLINES, PALETTE_NAMES, PALETTES, RENDERERS,
+                                    VALUE_CAP, build_classes, collect_categories, collect_values,
+                                    hex_rgb, land_use_color, palette_colors, ramp_colors,
+                                    renderer_kind, validate_label_spec, validate_style_spec)
 
 HEX = "#0123456789abcdefABCDEF"
 
@@ -278,6 +279,190 @@ class CollectCategoriesTests(unittest.TestCase):
         categories, exceeded = collect_categories(fake, "d", "C")
         self.assertTrue(exceeded)
         self.assertEqual(len(categories), MAX_UNIQUE_VALUES + 1)
+
+
+class FakeField:
+    def __init__(self, name, kind):
+        self.name = name
+        self.type = kind
+
+
+class FakeDesc:
+    def __init__(self, data_type, shape_type=None, fields=()):
+        self.dataType = data_type
+        self.shapeType = shape_type
+        self.fields = [FakeField(*item) if isinstance(item, tuple) else item for item in fields]
+
+
+POLY_FIELDS = (("OBJECTID", "OID"), ("SHAPE", "Geometry"), ("VALUE", "Double"),
+               ("CATEGORY", "String"), ("NAME", "String"), ("COUNT", "Integer"))
+
+
+def polygon_desc():
+    return FakeDesc("FeatureClass", "Polygon", POLY_FIELDS)
+
+
+def line_desc():
+    return FakeDesc("FeatureClass", "Polyline", POLY_FIELDS)
+
+
+def point_desc():
+    return FakeDesc("FeatureClass", "Point", POLY_FIELDS)
+
+
+def raster_desc():
+    return FakeDesc("RasterDataset", None, ())
+
+
+class RendererKindTests(unittest.TestCase):
+    def test_sequential_on_vector_is_class_breaks(self):
+        for name in ("BLUES", "GREENS", "REDS", "RD_BU"):
+            self.assertEqual(renderer_kind(name, polygon_desc()), "CLASS_BREAKS", name)
+
+    def test_sequential_on_raster_is_a_ramp(self):
+        self.assertEqual(renderer_kind("BLUES", raster_desc()), "RASTER_RAMP")
+
+    def test_qualitative_on_vector_is_unique_value(self):
+        self.assertEqual(renderer_kind("CATEGORY10", polygon_desc()), "UNIQUE_VALUE")
+        self.assertEqual(renderer_kind("LAND_USE", point_desc()), "UNIQUE_VALUE")
+
+    def test_qualitative_on_raster_is_refused(self):
+        with self.assertRaises(ValueError) as caught:
+            renderer_kind("CATEGORY10", raster_desc())
+        self.assertIn("栅格", str(caught.exception))
+
+    def test_terrain_on_raster_is_a_ramp(self):
+        self.assertEqual(renderer_kind("ELEVATION", raster_desc()), "RASTER_RAMP")
+        self.assertEqual(renderer_kind("HILLSHADE_GRAY", raster_desc()), "RASTER_RAMP")
+
+    def test_terrain_on_vector_is_refused(self):
+        with self.assertRaises(ValueError) as caught:
+            renderer_kind("ELEVATION", polygon_desc())
+        self.assertIn("栅格", str(caught.exception))
+
+    def test_base_follows_the_geometry(self):
+        for desc in (polygon_desc(), line_desc(), point_desc()):
+            self.assertEqual(renderer_kind("BASE", desc), "SIMPLE")
+
+    def test_base_on_raster_is_refused(self):
+        with self.assertRaises(ValueError):
+            renderer_kind("BASE", raster_desc())
+
+    def test_unknown_palette_is_refused_with_the_available_list(self):
+        with self.assertRaises(ValueError) as caught:
+            renderer_kind("RAINBOW", polygon_desc())
+        self.assertIn("BLUES", str(caught.exception))
+
+    def test_tables_are_refused_because_they_cannot_render(self):
+        with self.assertRaises(ValueError):
+            renderer_kind("BLUES", FakeDesc("Table", None, POLY_FIELDS))
+
+    def test_every_kind_is_declared(self):
+        self.assertEqual(RENDERERS, ("CLASS_BREAKS", "UNIQUE_VALUE", "SIMPLE", "RASTER_RAMP"))
+
+
+class ValidateStyleSpecTests(unittest.TestCase):
+    def test_class_breaks_requires_a_numeric_field(self):
+        validate_style_spec({"layer": "L", "palette": "BLUES", "field": "VALUE",
+                             "classes": 5, "method": "EQUAL_INTERVAL"}, polygon_desc())
+
+    def test_class_breaks_refuses_a_text_field_and_lists_numeric_ones(self):
+        with self.assertRaises(ValueError) as caught:
+            validate_style_spec({"layer": "L", "palette": "BLUES", "field": "CATEGORY"},
+                                polygon_desc())
+        message = str(caught.exception)
+        self.assertIn("VALUE", message)
+        self.assertIn("数值", message)
+
+    def test_missing_field_lists_every_field_name(self):
+        with self.assertRaises(ValueError) as caught:
+            validate_style_spec({"layer": "L", "palette": "BLUES", "field": "NOPE"}, polygon_desc())
+        self.assertIn("CATEGORY", str(caught.exception))
+
+    def test_class_breaks_requires_the_field_argument(self):
+        with self.assertRaises(ValueError) as caught:
+            validate_style_spec({"layer": "L", "palette": "BLUES"}, polygon_desc())
+        self.assertIn("field", str(caught.exception))
+
+    def test_unknown_method_is_refused_with_the_allowed_list(self):
+        # build_classes 把未知 method 静默当成 QUANTILE；只有这道闸门拦住它。
+        with self.assertRaises(ValueError) as caught:
+            validate_style_spec({"layer": "L", "palette": "BLUES", "field": "VALUE",
+                                 "classes": 5, "method": "NATURAL_BREAKS"}, polygon_desc())
+        message = str(caught.exception)
+        self.assertIn("EQUAL_INTERVAL", message)
+        self.assertIn("QUANTILE", message)
+        self.assertIn("NATURAL_BREAKS", message)
+
+    def test_unique_value_requires_a_field(self):
+        with self.assertRaises(ValueError):
+            validate_style_spec({"layer": "L", "palette": "CATEGORY10"}, polygon_desc())
+
+    def test_unique_value_accepts_text_and_coded_fields(self):
+        validate_style_spec({"layer": "L", "palette": "CATEGORY10", "field": "CATEGORY"},
+                            polygon_desc())
+
+    def test_unique_value_refuses_a_continuous_float_field(self):
+        # 连续浮点做唯一值几乎必然超出 10 类上限，且图例不可读。
+        with self.assertRaises(ValueError) as caught:
+            validate_style_spec({"layer": "L", "palette": "CATEGORY10", "field": "VALUE"},
+                                polygon_desc())
+        self.assertIn("分级", str(caught.exception))
+
+    def test_unique_value_refuses_classes_and_method(self):
+        # 类别数由数据决定、分级方法对它无意义；静默忽略会让模型以为参数生效了。
+        for extra in ({"classes": 5}, {"method": "QUANTILE"}):
+            with self.assertRaises(ValueError) as caught:
+                validate_style_spec(dict({"layer": "L", "palette": "CATEGORY10",
+                                          "field": "CATEGORY"}, **extra), polygon_desc())
+            self.assertIn("不接受", str(caught.exception))
+
+    def test_base_needs_no_field_and_refuses_one(self):
+        validate_style_spec({"layer": "L", "palette": "BASE"}, polygon_desc())
+        with self.assertRaises(ValueError) as caught:
+            validate_style_spec({"layer": "L", "palette": "BASE", "field": "VALUE"}, polygon_desc())
+        self.assertIn("不接受", str(caught.exception))
+
+    def test_ramp_refuses_classes_and_method(self):
+        with self.assertRaises(ValueError) as caught:
+            validate_style_spec({"layer": "L", "palette": "ELEVATION", "classes": 5}, raster_desc())
+        self.assertIn("不接受", str(caught.exception))
+
+    def test_sequential_on_raster_refuses_a_field(self):
+        with self.assertRaises(ValueError):
+            validate_style_spec({"layer": "L", "palette": "BLUES", "field": "VALUE"}, raster_desc())
+
+    def test_geometry_and_oid_fields_cannot_be_styled(self):
+        for field in ("SHAPE", "OBJECTID"):
+            with self.assertRaises(ValueError):
+                validate_style_spec({"layer": "L", "palette": "BLUES", "field": field},
+                                    polygon_desc())
+
+
+class ValidateLabelSpecTests(unittest.TestCase):
+    def test_text_and_numeric_fields_are_labelable(self):
+        validate_label_spec({"layer": "L", "field": "NAME", "size": 9}, polygon_desc())
+        validate_label_spec({"layer": "L", "field": "COUNT", "size": 12}, polygon_desc())
+
+    def test_missing_field_is_refused(self):
+        with self.assertRaises(ValueError) as caught:
+            validate_label_spec({"layer": "L", "field": "NOPE"}, polygon_desc())
+        self.assertIn("NAME", str(caught.exception))
+
+    def test_geometry_and_oid_fields_are_not_labelable(self):
+        for field in ("SHAPE", "OBJECTID"):
+            with self.assertRaises(ValueError):
+                validate_label_spec({"layer": "L", "field": field}, polygon_desc())
+
+    def test_raster_layers_cannot_be_labelled(self):
+        with self.assertRaises(ValueError) as caught:
+            validate_label_spec({"layer": "L", "field": "NAME"}, raster_desc())
+        self.assertIn("栅格", str(caught.exception))
+
+    def test_date_fields_are_refused_because_arcade_needs_formatting(self):
+        desc = FakeDesc("FeatureClass", "Polygon", (("WHEN", "Date"),))
+        with self.assertRaises(ValueError):
+            validate_label_spec({"layer": "L", "field": "WHEN"}, desc)
 
 
 if __name__ == "__main__":

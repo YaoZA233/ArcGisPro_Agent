@@ -6,12 +6,15 @@
   * 从零构造的符号会落盘但完全不渲染，必须深拷贝运行时生成的默认符号再改色；
   * 栅格符号化走 definition.colorizer，CIMRasterLayer.renderer 恒为 None。
 
-本模块不碰工程文件、不做 IO、不决定输出路径：只接受 CIM definition 并原地改好它。
+本模块自身不做 IO、不碰工程文件、不决定输出路径：只接受 CIM definition 并原地改好它；
+字段值的读取（collect_values / collect_categories）通过调用方注入的 arcpy 游标句柄委托进行。
 工程文件的打开与保存全部归 cartography.py。
 """
 from __future__ import annotations
 
 import math
+
+from .analysis_tools import RASTER_TYPES
 
 KINDS = ("SEQUENTIAL", "QUALITATIVE", "TERRAIN", "BASE")
 CLASSIFY_METHODS = ("EQUAL_INTERVAL", "QUANTILE")
@@ -177,3 +180,114 @@ def collect_categories(arcpy, dataset, field, limit=MAX_UNIQUE_VALUES):
             if len(seen) > limit:
                 return sorted(seen), True
     return sorted(seen), False
+
+
+RENDERERS = ("CLASS_BREAKS", "UNIQUE_VALUE", "SIMPLE", "RASTER_RAMP")
+
+
+def field_types(desc):
+    return {item.name: item.type for item in (desc.fields or [])}
+
+
+def _is_raster(desc):
+    return desc.dataType in RASTER_TYPES
+
+
+def _geometry(desc):
+    shape = getattr(desc, "shapeType", None)
+    if not shape:
+        return None
+    return {"Polygon": "Polygon", "Polyline": "Polyline", "Line": "Polyline",
+            "Point": "Point", "Multipoint": "Point"}.get(shape, shape)
+
+
+def renderer_kind(name, desc):
+    """由「色板 kind × 数据是栅格还是矢量 × 矢量几何类型」推断 renderer，不作为参数暴露。"""
+    if name not in PALETTES:
+        raise ValueError(f"未知色板：{name}；可用色板：{', '.join(PALETTE_NAMES)}。")
+    kind = PALETTES[name]["kind"]
+    if _is_raster(desc):
+        if kind in ("SEQUENTIAL", "TERRAIN"):
+            return "RASTER_RAMP"
+        raise ValueError(f"色板 {name}（{kind}）只适用于矢量要素，而该数据是栅格；"
+                         f"栅格请用 {', '.join(sorted(SEQUENTIAL) + sorted(TERRAIN))}。")
+    if desc.dataType != "FeatureClass" or _geometry(desc) is None:
+        raise ValueError(f"该数据是 {desc.dataType}，没有可渲染的几何，无法符号化。")
+    if kind == "SEQUENTIAL":
+        return "CLASS_BREAKS"
+    if kind == "QUALITATIVE":
+        return "UNIQUE_VALUE"
+    if kind == "BASE":
+        return "SIMPLE"
+    raise ValueError(f"色板 {name} 只适用于栅格，而该数据是矢量要素类；"
+                     f"矢量请用 {', '.join(sorted(SEQUENTIAL) + ['CATEGORY10', 'LAND_USE', 'BASE'])}。")
+
+
+def _check_field(style, desc, allowed, wanted, requirement):
+    """校验并返回字段名。
+
+    requirement 是写给用户看的类型要求说明，必须出现在错误消息里 —— 只说「类型不对」
+    而不说「要什么类型」，模型就没法自己纠正。可用字段列表按 allowed 过滤后给出，
+    让模型能直接挑一个合法的换上。
+    """
+    fields = field_types(desc)
+    field = style.get("field")
+    usable = ", ".join(k for k, v in sorted(fields.items()) if v in allowed) or "（无）"
+    if not field:
+        # 标注 spec 没有 palette 键；缺 field 也必须给 ValueError 而不是 KeyError。
+        subject = f"色板 {style['palette']} " if "palette" in style else ""
+        raise ValueError(f"{subject}走{wanted}，必须提供 field 参数；"
+                         f"该数据集可用的字段有：{usable}。")
+    if field not in fields:
+        raise ValueError(f"字段 {field} 不存在；该数据集的字段有：{', '.join(sorted(fields))}。")
+    if fields[field] not in allowed:
+        raise ValueError(f"字段 {field} 是 {fields[field]} 类型，而{wanted}要求{requirement}；"
+                         f"该数据集可用的字段有：{usable}。")
+    return field
+
+
+NUMERIC_REQUIREMENT = "数值类型（Integer / SmallInteger / Float / Double）"
+LABELABLE_REQUIREMENT = "文本或数值类型（日期字段请先在 ArcGIS Pro 里格式化成文本）"
+
+
+def validate_style_spec(style, desc):
+    """校验一条 style，返回它实际要走的 renderer kind。全部拒绝都在复制工程模板之前发生。"""
+    kind = renderer_kind(style["palette"], desc)
+    # 不生效的参数必须显式拒绝：静默忽略会让模型以为自己的参数起作用了。
+    # 唯一值也不接受 classes/method —— 类别数由数据决定，分级方法对它没有意义。
+    banned = {"SIMPLE": ("field", "classes", "method"),
+              "RASTER_RAMP": ("field", "classes", "method"),
+              "UNIQUE_VALUE": ("classes", "method"),
+              "CLASS_BREAKS": ()}[kind]
+    for name in banned:
+        if name in style:
+            raise ValueError(f"色板 {style['palette']} 走{kind}，不接受 {name} 参数；"
+                             f"请去掉它，或改用支持分级的色板（{', '.join(sorted(SEQUENTIAL))}）。")
+    if kind in ("SIMPLE", "RASTER_RAMP"):
+        return kind
+    if kind == "CLASS_BREAKS":
+        _check_field(style, desc, NUMERIC_FIELD_TYPES, "分级色彩", NUMERIC_REQUIREMENT)
+        classes = style.get("classes", 5)
+        if not MIN_CLASSES <= classes <= MAX_CLASSES:
+            raise ValueError(f"classes 必须在 {MIN_CLASSES}–{MAX_CLASSES} 之间，收到 {classes}；"
+                             f"7 级以上制图不可读。")
+        method = style.get("method", "EQUAL_INTERVAL")
+        if method not in CLASSIFY_METHODS:
+            raise ValueError(f"method 只能是 {' 或 '.join(CLASSIFY_METHODS)}，收到 {method}。")
+        return kind
+    field = _check_field(style, desc, NUMERIC_FIELD_TYPES | TEXT_FIELD_TYPES,
+                         "唯一值渲染", LABELABLE_REQUIREMENT)
+    if field_types(desc)[field] in NUMERIC_FIELD_TYPES and field_types(desc)[field] in ("Float", "Double"):
+        raise ValueError(f"字段 {field} 是连续浮点数，做唯一值会产生大量类别且图例不可读；"
+                         f"请改用分级色彩（{', '.join(sorted(SEQUENTIAL))}）配 field 与 classes。")
+    return kind
+
+
+def validate_label_spec(label, desc):
+    if _is_raster(desc):
+        raise ValueError("栅格图层没有属性字段，无法标注；如需注记请用 build_layout 的 title，"
+                         "或先把栅格转成要素类。")
+    _check_field(label, desc, NUMERIC_FIELD_TYPES | TEXT_FIELD_TYPES, "标注", LABELABLE_REQUIREMENT)
+    size = label.get("size", 9)
+    if not 6 <= size <= 24:
+        raise ValueError(f"标注字号必须在 6–24 pt 之间，收到 {size}。")
