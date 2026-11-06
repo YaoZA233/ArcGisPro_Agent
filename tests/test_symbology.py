@@ -698,7 +698,14 @@ class StubDefinition:
 
 
 def prototype_colors(symbol_ref):
-    """把符号里的填充色与轮廓色读出来，供断言。"""
+    """把符号里的填充色与轮廓色读出来，供断言。
+
+    未上色的节点 color 仍为 None（标注只画 fill、不动 stroke），所以取值要容错，
+    否则读色助手自己先 AttributeError。
+    """
+    def values_of(node):
+        return None if node.color is None else node.color.values
+
     fills, strokes = [], []
     stack = [symbol_ref]
     while stack:
@@ -707,9 +714,9 @@ def prototype_colors(symbol_ref):
             stack.extend(node)
             continue
         if isinstance(node, CIMSolidFill):
-            fills.append(node.color.values)
+            fills.append(values_of(node))
         elif isinstance(node, CIMSolidStroke):
-            strokes.append((node.color.values, node.width))
+            strokes.append((values_of(node), node.width))
         for name in ("symbol", "symbolLayers", "markerGraphics"):
             if hasattr(node, name):
                 stack.append(getattr(node, name))
@@ -998,6 +1005,93 @@ class RasterRampTests(unittest.TestCase):
         self.assertEqual(plan["renderer"], "RASTER_RAMP")
         self.assertEqual(len(plan["colors"]), 7)
         self.assertEqual(fake.cursor_calls, [])
+
+
+# ---------------------------------------------------------------------------
+# Task 7: 图层标注（apply_label）。
+# 铁律：标注必须改**已存在的** definition.labelClasses[0]；整个替换为新建
+# CIMLabelClass 会落盘成功、labelVisibility 也为真，但导出图上一个字都不渲染。
+# test_the_existing_label_class_is_mutated_not_replaced 就是钉这条的。
+# 桩类名延续 Task 5 的 CIM* 大写约定：CIMTextSymbol 内层必须挂真实的
+# CIMPolygonSymbol，paint_symbol 的 _walk_symbol 才能找到 CIMSolidFill 上色。
+# ---------------------------------------------------------------------------
+from arcgis_agent.symbology import LABEL_COLOR, LABEL_SIZE_DEFAULT, apply_label
+
+
+class CIMTextSymbol:
+    def __init__(self):
+        self.fontSize = 10
+        self.height = 10
+        self.fontFamilyName = ""
+        self.symbol = CIMPolygonSymbol()
+
+
+class CIMLabelClass:
+    def __init__(self):
+        self.expression = "$feature.OBJECTID"
+        self.expressionEngine = "Arcade"
+        self.visibility = False
+        self.textSymbol = CIMSymbolReference(CIMTextSymbol())
+
+
+class StubLabelDefinition:
+    def __init__(self, count=1):
+        self.renderer = StubRenderer()
+        self.labelClasses = [CIMLabelClass() for _ in range(count)]
+        self.labelVisibility = False
+
+
+class ApplyLabelTests(unittest.TestCase):
+    def test_expression_uses_arcade_field_syntax(self):
+        definition = StubLabelDefinition()
+        apply_label(StubArcpy(), definition, {"layer": "L", "field": "NAME", "size": 9})
+        self.assertEqual(definition.labelClasses[0].expression, "$feature.NAME")
+        self.assertEqual(definition.labelClasses[0].expressionEngine, "Arcade")
+
+    def test_visibility_is_turned_on_both_levels(self):
+        definition = StubLabelDefinition()
+        self.assertFalse(definition.labelVisibility)
+        apply_label(StubArcpy(), definition, {"layer": "L", "field": "NAME"})
+        self.assertTrue(definition.labelVisibility)
+        self.assertTrue(definition.labelClasses[0].visibility)
+
+    def test_size_reaches_both_fontsize_and_height(self):
+        definition = StubLabelDefinition()
+        apply_label(StubArcpy(), definition, {"layer": "L", "field": "NAME", "size": 16})
+        symbol = definition.labelClasses[0].textSymbol.symbol
+        self.assertEqual(symbol.fontSize, 16)
+        self.assertEqual(symbol.height, 16)
+
+    def test_default_size_is_the_documented_one(self):
+        definition = StubLabelDefinition()
+        apply_label(StubArcpy(), definition, {"layer": "L", "field": "NAME"})
+        self.assertEqual(definition.labelClasses[0].textSymbol.symbol.fontSize,
+                         LABEL_SIZE_DEFAULT)
+
+    def test_glyph_color_lands_in_the_inner_polygon_symbol(self):
+        definition = StubLabelDefinition()
+        apply_label(StubArcpy(), definition, {"layer": "L", "field": "NAME"})
+        fills, _ = prototype_colors(definition.labelClasses[0].textSymbol.symbol.symbol)
+        self.assertEqual(fills, [list(hex_rgb(LABEL_COLOR)) + [100]])
+
+    def test_the_existing_label_class_is_mutated_not_replaced(self):
+        # 实测：整个替换 labelClasses 会落盘成功但不渲染。
+        definition = StubLabelDefinition()
+        original = definition.labelClasses[0]
+        apply_label(StubArcpy(), definition, {"layer": "L", "field": "NAME"})
+        self.assertIs(definition.labelClasses[0], original)
+        self.assertEqual(len(definition.labelClasses), 1)
+
+    def test_a_layer_without_any_label_class_is_refused(self):
+        definition = StubLabelDefinition(count=0)
+        with self.assertRaises(ValueError) as caught:
+            apply_label(StubArcpy(), definition, {"layer": "L", "field": "NAME"})
+        self.assertIn("labelClass", str(caught.exception))
+
+    def test_field_names_with_spaces_are_quoted_for_arcade(self):
+        definition = StubLabelDefinition()
+        apply_label(StubArcpy(), definition, {"layer": "L", "field": "Pop 2020"})
+        self.assertEqual(definition.labelClasses[0].expression, "$feature['Pop 2020']")
 
 
 if __name__ == "__main__":

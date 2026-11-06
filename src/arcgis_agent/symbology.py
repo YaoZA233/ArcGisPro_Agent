@@ -500,3 +500,36 @@ def apply_raster_ramp(arcpy, definition, plan):
         segments.append(segment)
     ramp.colorRamps = segments
     colorizer.colorRamp = ramp
+
+
+# LABEL_SIZE_DEFAULT 已在文件头部定义（validate_label_spec 直接消费），此处只补字色常量。
+LABEL_COLOR = "#000000"
+
+
+def _arcade_field(field):
+    """Arcade 里带空格或特殊字符的字段名必须用中括号加引号取。"""
+    return f"$feature.{field}" if field.replace("_", "").isalnum() else f"$feature['{field}']"
+
+
+def apply_label(arcpy, definition, label):
+    """改运行时生成的那个 labelClass，不要整个替换列表。
+
+    实测：新建 CIMLabelClass 赋值给 labelClasses 会落盘成功、labelVisibility 也为真，
+    但导出图上一个字都没有；改默认那个才真的渲染。
+    """
+    existing = list(getattr(definition, "labelClasses", None) or [])
+    if not existing:
+        raise ValueError("该图层没有可用的 labelClass，无法标注；"
+                         "请改用 build_layout 的 title 或图廓元素承载文字。")
+    klass = existing[0]
+    klass.expression = _arcade_field(label["field"])
+    klass.expressionEngine = "Arcade"
+    klass.visibility = True
+    size = label.get("size", LABEL_SIZE_DEFAULT)
+    text_symbol = klass.textSymbol.symbol
+    text_symbol.fontSize = size
+    text_symbol.height = size
+    # 字形颜色在 textSymbol.symbol（CIMPolygonSymbol）里的 CIMSolidFill 上。
+    paint_symbol(arcpy, text_symbol.symbol, fill=LABEL_COLOR)
+    definition.labelClasses = [klass]
+    definition.labelVisibility = True
