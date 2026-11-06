@@ -60,6 +60,8 @@ addin/**/obj/
 .qoder/
 .qoder-credits/
 .claude/settings.local.json
+# 设计推敲过程稿（可视化面板的 mockup 与会话状态），结论以 docs/ 为准
+.superpowers/
 
 # ---------------------------------------------------------------------------
 # 操作系统

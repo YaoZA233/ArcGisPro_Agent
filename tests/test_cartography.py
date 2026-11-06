@@ -15,6 +15,7 @@ from arcgis_agent import cartography
 from arcgis_agent.cartography import (CARTOGRAPHY_TOOLS, DEFAULT_ELEMENTS, _camera_extent, _map_layer, _page,
                                        _reserve, _staged, _target)
 from arcgis_agent.catalog import EXPORT_EXTENSIONS, PAGE_SIZES, TOOLS, approval_details, validate_call
+from arcgis_agent.symbology import PALETTES
 
 LAYERS = ["C:/data/regions.shp", "C:/data/roads.shp"]
 
@@ -107,8 +108,9 @@ class CartographyContractTests(unittest.TestCase):
 
 
 class FakeField:
-    def __init__(self, name):
-        self.name, self.type, self.length = name, "String", 32
+    def __init__(self, name, kind="String"):
+        self.name, self.type = name, kind
+        self.length = 32
         self.isNullable, self.required, self.editable = True, False, True
 
 
@@ -125,12 +127,12 @@ class FakeBox:
 
 class FakeDesc:
     def __init__(self, data_type="FeatureClass", shape_type="Polygon", wkid=4326, box=(0.0, 0.0, 10.0, 10.0),
-                 sr_name=None):
+                 sr_name=None, fields=None):
         self.dataType, self.shapeType = data_type, shape_type
         self.spatialReference = FakeReference(wkid, sr_name)
         self.extent = FakeBox(*box)
         self.catalogPath = "C:/data/x"
-        self.fields = [FakeField("zone_name")]
+        self.fields = [FakeField("zone_name")] if fields is None else fields
 
 
 class FakeExtent:
@@ -255,9 +257,150 @@ class HelperTests(unittest.TestCase):
                                        ("C:/b", FakeDesc(wkid=3857))])
 
 
+class FakeCursor:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def __enter__(self):
+        return iter(self.rows)
+
+    def __exit__(self, *exc):
+        return False
+
+
+# CIM 桩类名沿用 Task 5/6/7 在 tests/test_symbology.py 里的 CIM* 运行时大写约定：
+# paint_symbol 靠 type(node).__name__ == "CIMSolidFill" 匹配节点，apply_renderer 用
+# arcpy.cim.CIMClassBreaksRenderer 构造容器。此处照抄，不能写成 Cim* 旧式，否则分级
+# 填充静默不上色而本文件的接线测试又不校验颜色，会给出假绿。
+class CIMSolidFill:
+    def __init__(self):
+        self.color = None
+
+
+class CIMSolidStroke:
+    def __init__(self):
+        self.color = None
+        self.width = 0.7
+
+
+class CIMVectorMarker:
+    def __init__(self):
+        self.size = 10.0
+        self.markerGraphics = []
+
+
+class CIMPolygonSymbol:
+    def __init__(self, layers=None):
+        self.symbolLayers = layers if layers is not None else [CIMSolidStroke(), CIMSolidFill()]
+
+
+class CIMSymbolReference:
+    def __init__(self, symbol=None):
+        self.symbol = symbol if symbol is not None else CIMPolygonSymbol()
+
+
+class CIMClassBreak:
+    def __init__(self):
+        self.upperBound = 0
+        self.label = ""
+        self.symbol = None
+
+
+class CIMClassBreaksRenderer:
+    def __init__(self):
+        self.field = ""
+        self.classBreakType = ""
+        self.minimumBreak = 0
+        self.breaks = []
+
+
+class CIMUniqueValue:
+    def __init__(self):
+        self.fieldValues = []
+
+
+class CIMUniqueValueClass:
+    def __init__(self):
+        self.values = []
+        self.label = ""
+        self.symbol = None
+        self.visible = False
+        self.editable = False
+
+
+class CIMUniqueValueGroup:
+    def __init__(self):
+        self.classes = []
+        self.heading = ""
+
+
+class CIMUniqueValueRenderer:
+    def __init__(self):
+        self.fields = []
+        self.groups = []
+        self.useDefaultSymbol = False
+        self.defaultSymbol = None
+        self.defaultLabel = ""
+
+
+class CimLinearContinuousColorRamp:
+    def __init__(self):
+        self.fromColor = None
+        self.toColor = None
+
+
+class CimMultipartColorRamp:
+    def __init__(self):
+        self.colorRamps = []
+        self.weights = []
+
+
+# 标注用的 CIMTextSymbol 是 Task 7 的字形形态（fontSize/height/symbol=CIMPolygonSymbol），
+# 只在模块级用于构造 StubLabelClass；绝不覆盖 StubCim.CIMTextSymbol（那里是 _add_title
+# 走的图名形态）。apply_label 读的是 StubLabelClass 已构造好的对象，不触碰 arcpy.cim。
+class CIMTextSymbol:
+    def __init__(self):
+        self.fontSize = 10
+        self.height = 10
+        self.fontFamilyName = ""
+        self.symbol = CIMPolygonSymbol()
+
+
+class CIMLabelClass:
+    def __init__(self):
+        self.expression = "$feature.OBJECTID"
+        self.expressionEngine = "Arcade"
+        self.visibility = False
+        self.textSymbol = CIMSymbolReference(CIMTextSymbol())
+
+
+class StubSimpleRenderer:
+    """镜像 tests/test_symbology.py 的 StubRenderer：.symbol 是 CIMSymbolReference，
+    其默认符号 CIMPolygonSymbol 内含 CIMSolidStroke + CIMSolidFill，apply_renderer 的
+    copy.deepcopy(definition.renderer.symbol) 才有东西可拷、分级填充才会真正命中 CIMSolidFill。"""
+
+    def __init__(self):
+        self.symbol = CIMSymbolReference()
+
+
+class StubLayerDefinition:
+    def __init__(self):
+        self.renderer = StubSimpleRenderer()
+        self.labelClasses = [CIMLabelClass()]
+        self.labelVisibility = False
+
+
 class StubElement:
     def __init__(self, name):
         self.name = name
+        self.definitions_received = []
+
+    def getDefinition(self, version):
+        assert version == "V3"
+        return StubLayerDefinition()
+
+    def setDefinition(self, definition):
+        self.definitions_received.append(definition)
 
 
 class StubLayout:
@@ -324,12 +467,16 @@ class StubMap:
 
     def __init__(self, spatial_reference=None, adds=True):
         self.added = []
+        self.layers_added = []
         self.spatialReference = spatial_reference or FakeReference(4326)
         self.adds = adds
 
     def addDataFromPath(self, path):
         self.added.append(path)
-        return StubElement(Path(path).stem) if self.adds else None
+        layer = StubElement(Path(path).stem) if self.adds else None
+        if layer is not None:
+            self.layers_added.append(layer)
+        return layer
 
 
 class StubProject:
@@ -380,10 +527,22 @@ class StubCim:
             self.name = self.graphic = None
 
 
+# 只补符号化侧的 renderer/ramp 容器类；CIMRGBColor / CIMTextSymbol / CIMParagraphTextGraphic /
+# CIMGraphicElement 保持图名路径的原样（标题色回归测试会子类化既有关键字默认版 CIMRGBColor）。
+StubCim.CIMClassBreak = CIMClassBreak
+StubCim.CIMClassBreaksRenderer = CIMClassBreaksRenderer
+StubCim.CIMUniqueValue = CIMUniqueValue
+StubCim.CIMUniqueValueClass = CIMUniqueValueClass
+StubCim.CIMUniqueValueGroup = CIMUniqueValueGroup
+StubCim.CIMUniqueValueRenderer = CIMUniqueValueRenderer
+StubCim.CIMMultipartColorRamp = CimMultipartColorRamp
+StubCim.CIMLinearContinuousColorRamp = CimLinearContinuousColorRamp
+
+
 class StubArcpy:
     """Only the surface cartography touches; the real call shapes are proven by the ArcPy smoke run."""
 
-    def __init__(self, install_dir, descs=None, project_factory=None):
+    def __init__(self, install_dir, descs=None, project_factory=None, rows=None):
         self.cim = StubCim
         self.mp = type("mp", (), {})
         self.mp.ArcGISProject = project_factory or (lambda path: StubProject(path))
@@ -394,6 +553,17 @@ class StubArcpy:
         self.Extent = FakeExtent
         self.desces = descs or {}
         self.install = Path(install_dir)
+        self.rows = rows or {}
+
+        class _management:
+            def GetCount(inner_self, dataset):
+                return [str(len(self.rows.get(dataset, [])))]
+
+        class _da:
+            def SearchCursor(inner_self, dataset, fields):
+                return FakeCursor(self.rows.get(dataset, []))
+
+        self.management, self.da = _management(), _da()
 
     def GetInstallInfo(self):
         return {"InstallDir": str(self.install)}
@@ -611,6 +781,142 @@ class FlowTests(unittest.TestCase):
         arcpy = StubArcpy(self.install, project_factory=lambda path: seen.append(path) or project)
         cartography._export_layout(arcpy, {"project": "CURRENT", "output_name": "s", "format": "PNG"}, self.root / "run")
         self.assertEqual(seen, ["CURRENT"])
+
+
+class SymbologyWiringTests(unittest.TestCase):
+    def setUp(self):
+        self._tmp = TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        template = self.root / "pro" / cartography.BLANK_TEMPLATE
+        template.parent.mkdir(parents=True)
+        template.write_text("blank project template", encoding="utf-8")
+        self.install = self.root / "pro"
+        self.out = self.root / "run"
+        StubProject.instances = []
+        # LAYERS[0] 是符号化要用的面图层：一个 Double 字段做分级、一个类别字段、一个注记字段。
+        self.descs = {LAYERS[0]: FakeDesc(fields=[FakeField("VALUE", "Double"),
+                                                  FakeField("CATEGORY", "String"),
+                                                  FakeField("NAME", "String")])}
+        self.rows = {LAYERS[0]: [(5.0,), (18.0,), (31.0,), (44.0,), (57.0,),
+                                 (70.0,), (83.0,), (96.0,), (109.0,)]}
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def build(self, arguments, rows=None):
+        arcpy = StubArcpy(self.install, descs=self.descs,
+                          rows=self.rows if rows is None else rows)
+        return cartography._build_layout(arcpy, arguments, self.out), arcpy
+
+    def styled(self, palette="BLUES", field="VALUE"):
+        """classes/method 只对分级色彩有意义：唯一值路径会显式拒绝它们（见 Task 3）。"""
+        style = {"layer": LAYERS[0], "palette": palette, "field": field}
+        if PALETTES[palette]["kind"] == "SEQUENTIAL":
+            style.update({"classes": 5, "method": "EQUAL_INTERVAL"})
+        return base(styles=[style])
+
+    def test_styles_are_planned_before_the_template_is_copied(self):
+        # 前置校验不变量：被拒的样式不能留下半成品 .aprx，也不能创建 cartography 目录。
+        with self.assertRaises(ValueError):
+            self.build(base(styles=[{"layer": "C:/nope.gdb/missing", "palette": "BLUES"}]))
+        self.assertFalse((self.out / "cartography").exists())
+
+    def test_a_refused_style_leaves_no_staged_project_behind(self):
+        # ELEVATION 是栅格色板，用在面图层上必须被拒。
+        # 只扫 run 目录：self.root 下另有 setUp 写的 Blank.aprx 假模板，不能算半成品工程。
+        with self.assertRaises(ValueError):
+            self.build(self.styled(palette="ELEVATION"))
+        self.assertEqual([p.name for p in self.out.rglob("*.aprx")], [])
+
+    def test_result_reports_the_symbology_plan(self):
+        result, _ = self.build(self.styled())
+        self.assertEqual(result["symbology"][0]["palette"], "BLUES")
+        self.assertEqual(result["symbology"][0]["renderer"], "CLASS_BREAKS")
+        self.assertEqual(len(result["symbology"][0]["bounds"]), 5)
+        self.assertEqual(result["symbology"][0]["bounds"][-1], 109.0)
+        self.assertFalse(result["symbology"][0]["sampled"])
+
+    def test_result_reports_labels(self):
+        arguments = self.styled()
+        arguments["labels"] = [{"layer": LAYERS[0], "field": "NAME", "size": 12}]
+        result, _ = self.build(arguments)
+        self.assertEqual(result["labels"], [{"layer": LAYERS[0], "field": "NAME", "size": 12}])
+
+    def test_unmatched_land_use_values_are_surfaced(self):
+        rows = {LAYERS[0]: [("水体",), ("其他",), ("未知类",)]}
+        result, _ = self.build(self.styled(palette="LAND_USE", field="CATEGORY"), rows=rows)
+        self.assertEqual(result["symbology"][0]["unmatched"], ["其他", "未知类"])
+
+    def test_omitting_styles_keeps_the_previous_behaviour(self):
+        # 向后兼容：不传 styles/labels 时除新增的两个空键外，返回结构与改动前一致。
+        result, _ = self.build(base())
+        self.assertEqual(result["symbology"], [])
+        self.assertEqual(result["labels"], [])
+        self.assertEqual(result["page_size"], "A4")
+        self.assertEqual(result["elements"], ["图例", "指北针", "比例尺"])
+        self.assertIn("next_step", result)
+
+    def test_definition_reaches_the_layer_with_a_class_breaks_renderer(self):
+        self.build(self.styled())
+        layer = StubProject.instances[0].maps[0].layers_added[0]
+        self.assertEqual(len(layer.definitions_received), 1)
+        definition = layer.definitions_received[0]
+        self.assertEqual(type(definition.renderer).__name__, "CIMClassBreaksRenderer")
+        self.assertEqual(len(definition.renderer.breaks), 5)
+
+    def test_each_styled_layer_gets_its_own_plan_not_the_first_one(self):
+        # 终审 Minor：接线若把 plans[0] 套到所有图层（而非按 dataset 映射），两层的分级档数会相同。
+        # 这里给两层分别 3 档与 5 档，逐层断言各自 CIM renderer 的 breaks 长度，
+        # 把「正确的 plan 落到正确的图层」这条编排正确性钉死在 CIM 往返层面。
+        self.descs[LAYERS[1]] = FakeDesc(fields=[FakeField("VALUE", "Double")])
+        self.rows[LAYERS[1]] = self.rows[LAYERS[0]]
+        arguments = base(styles=[
+            {"layer": LAYERS[0], "palette": "BLUES", "field": "VALUE",
+             "classes": 3, "method": "EQUAL_INTERVAL"},
+            {"layer": LAYERS[1], "palette": "GREENS", "field": "VALUE",
+             "classes": 5, "method": "EQUAL_INTERVAL"},
+        ])
+        result, _ = self.build(arguments)
+        layers = StubProject.instances[0].maps[0].layers_added
+        self.assertEqual(len(layers), 2)
+        for layer, expected in zip(layers, (3, 5)):
+            renderer = layer.definitions_received[0].renderer
+            self.assertEqual(type(renderer).__name__, "CIMClassBreaksRenderer")
+            self.assertEqual(len(renderer.breaks), expected)
+        # 返回的 symbology 段也逐层对上：第 0 层 BLUES/3 档，第 1 层 GREENS/5 档。
+        self.assertEqual([(item["palette"], len(item["bounds"])) for item in result["symbology"]],
+                         [("BLUES", 3), ("GREENS", 5)])
+
+    def test_definition_reaches_the_layer_with_labels_turned_on(self):
+        arguments = self.styled()
+        arguments["labels"] = [{"layer": LAYERS[0], "field": "NAME", "size": 12}]
+        self.build(arguments)
+        definition = StubProject.instances[0].maps[0].layers_added[0].definitions_received[0]
+        self.assertTrue(definition.labelVisibility)
+        self.assertEqual(definition.labelClasses[0].expression, "$feature.NAME")
+        self.assertEqual(definition.labelClasses[0].textSymbol.symbol.fontSize, 12)
+
+    def test_unstyled_layers_are_never_round_tripped_through_cim(self):
+        # 不带 styles/labels 时完全不碰 getDefinition，保持改动前的行为与开销。
+        self.build(base())
+        for layer in StubProject.instances[0].maps[0].layers_added:
+            self.assertEqual(layer.definitions_received, [])
+
+    def test_title_color_goes_through_values_not_keywords(self):
+        # 既有缺陷回归：red=/green=/blue= 会被静默忽略，黑色只是 values 未设置时的默认值。
+        # 用子类替换而不是改 StubCim 本身 —— 改共享类会污染同批其他测试。
+        made = []
+        original = StubCim.CIMRGBColor
+
+        class TracingColor(original):
+            def __init__(self):
+                made.append(self)
+
+        arcpy = StubArcpy(self.install, descs=self.descs, rows=self.rows)
+        arcpy.cim = type("TracingCim", (StubCim,), {"CIMRGBColor": TracingColor})
+        cartography._build_layout(arcpy, base(), self.root / "run-title")
+        self.assertTrue(made, "图名必须构造 CIMRGBColor")
+        self.assertEqual(made[-1].values, [0, 0, 0, 100])
 
 
 if __name__ == "__main__":

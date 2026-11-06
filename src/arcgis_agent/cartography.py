@@ -16,6 +16,7 @@ from pathlib import Path
 from .analysis_tools import RASTER_TYPES
 from .catalog import EXPORT_EXTENSIONS, PAGE_SIZES
 from .gis_tools import check_dataset
+from .symbology import apply_label, apply_renderer, plan_style, validate_label_spec
 
 CARTOGRAPHY_TOOLS = frozenset({"build_layout", "export_layout"})
 BLANK_TEMPLATE = Path("Resources") / "ArcToolBox" / "Services" / "routingservices" / "data" / "Blank.aprx"
@@ -139,7 +140,11 @@ def _add_title(arcpy, layout, text, width, height, band_width):
     symbol.fontSize = 20
     symbol.bold = True
     symbol.horizontalAlignment = "Center"
-    symbol.color = arcpy.cim.CIMRGBColor(red=0, green=0, blue=0)
+    # 颜色必须写进 values：red=/green=/blue= 关键字会被静默忽略，
+    # 现在的黑色只是 values 未设置时的默认值碰巧撞对的。
+    title_color = arcpy.cim.CIMRGBColor()
+    title_color.values = [0, 0, 0, 100]
+    symbol.color = title_color
     graphic.symbol = symbol
     graphic.shape = _rect(arcpy, MARGIN, height - MARGIN - TITLE_BAND, band_width, TITLE_BAND - 4.0)
     element = arcpy.cim.CIMGraphicElement()
@@ -149,16 +154,27 @@ def _add_title(arcpy, layout, text, width, height, band_width):
     layout.setDefinition(definition)
 
 
-def _fill_layout(arcpy, project_path, arguments, prepared, extent, reference, width, height, elements):
+def _fill_layout(arcpy, project_path, arguments, prepared, extent, reference, width, height,
+                 elements, plans, label_plans):
     project = arcpy.mp.ArcGISProject(str(project_path))
     map_object = layout = frame = camera = None
     try:
         map_object = project.listMaps()[0]
         layers = []
+        by_dataset = {dataset: plan for dataset, plan in plans}
+        labels_by_dataset = {dataset: label for dataset, label in label_plans}
         for dataset, _ in prepared:
             layer = map_object.addDataFromPath(dataset)
             if layer is None:
                 raise ValueError(f"ArcGIS 无法把 {dataset} 加入地图，出图未执行；请用 describe 检查该数据。")
+            # 只对有样式或有标注的图层做 CIM 往返；其余图层保持改动前的行为与开销。
+            if dataset in by_dataset or dataset in labels_by_dataset:
+                definition = layer.getDefinition("V3")
+                if dataset in by_dataset:
+                    apply_renderer(arcpy, definition, by_dataset[dataset])
+                if dataset in labels_by_dataset:
+                    apply_label(arcpy, definition, labels_by_dataset[dataset])
+                layer.setDefinition(definition)
             layers.append(layer.name)
         map_code = map_object.spatialReference.factoryCode or map_object.spatialReference.name
         if map_code != (reference.factoryCode or reference.name):
@@ -190,6 +206,8 @@ def _fill_layout(arcpy, project_path, arguments, prepared, extent, reference, wi
                 "spatial_reference": {"name": reference.name, "wkid": reference.factoryCode},
                 "extent": {"xmin": extent.XMin, "ymin": extent.YMin, "xmax": extent.XMax, "ymax": extent.YMax},
                 "extent_source": "requested" if "extent" in arguments else "data_extent",
+                "symbology": [plan for _, plan in plans],
+                "labels": list(labels_by_dataset.values()),
                 "project_modified": False, "next_step": "用 export_layout 传入本 project 路径与 layout 名称导出图片"}
     finally:
         del camera, frame, layout, map_object, project
@@ -200,6 +218,32 @@ def _build_layout(arcpy, arguments, folder):
     template = _blank_template(arcpy)
     prepared = [(dataset, _map_layer(arcpy, dataset)) for dataset in arguments["layers"]]
     extent, reference, _ = _camera_extent(arcpy, arguments, prepared)
+    described = dict(prepared)
+
+    def _resolve(entries, what):
+        """把 styles/labels 里的 layer 翻成 (路径, 条目, desc)。
+
+        未知图层必须抛 ValueError 而不是 KeyError：validate_call 已挡过一次，但
+        _build_layout 也会被直接调用（离线测试与确定性计划执行器），而 KeyError 会被
+        上层当成内部错误，用户就看不到「哪个图层写错了」这条可操作信息。
+        """
+        resolved = []
+        for entry in entries:
+            target = entry["layer"]
+            if target not in described:
+                raise ValueError(f"{what} 里的 layer「{target}」不在 layers 中；"
+                                 f"本次 layers 是：{', '.join(described)}。")
+            resolved.append((target, entry, described[target]))
+        return resolved
+
+    # 规划阶段会读源数据（只读），但必须全部排在复制模板之前：
+    # 任何拒绝都不该留下半成品 .aprx，也不该创建 cartography 目录。
+    plans = [(target, plan_style(arcpy, entry, target, desc))
+             for target, entry, desc in _resolve(arguments.get("styles") or [], "styles")]
+    label_plans = []
+    for target, entry, desc in _resolve(arguments.get("labels") or [], "labels"):
+        validate_label_spec(entry, desc)
+        label_plans.append((target, dict(entry)))
     elements = arguments.get("elements")
     if elements is None:
         elements = list(DEFAULT_ELEMENTS)
@@ -209,7 +253,8 @@ def _build_layout(arcpy, arguments, folder):
     shutil.copy2(template, staged)
     result, published = None, False
     try:
-        result = _fill_layout(arcpy, staged, arguments, prepared, extent, reference, width, height, elements)
+        result = _fill_layout(arcpy, staged, arguments, prepared, extent, reference, width, height,
+                              elements, plans, label_plans)
         os.replace(staged, project_path)
         published = True
         result["project"] = str(project_path)

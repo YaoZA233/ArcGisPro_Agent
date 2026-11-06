@@ -35,6 +35,7 @@ ArcPyRuntime       InProcessRuntime       MockRuntime
 | `deepseek.py` | 流式客户端与共用 `DeepSeekPlanner`；失败观测回流、未执行批次调用 ID 闭合、请求模型重新决策 |
 | `analysis_tools.py` | 批次 2 的空间分析、叠合、几何重塑与属性连接；先检查扩展许可与要素/字段类型再调用 ArcGIS |
 | `cartography.py` | 批次 3 的出图与导出：复制安装自带空白模板新建任务内工程、`arcpy.mp` 建布局/图幅/图廓、CIM 加图名；导出侧只读打开、永不 `save()` |
+| `symbology.py` | 预设色板驱动的符号化与标注：色板常量与兼容校验（`renderer_kind`/`validate_style_spec`）、分级/唯一值计算、CIM renderer 与 colorizer/labelClass 的原地构造；不碰工程文件、不做 IO、不决定输出路径，字段值读取经调用方注入的 arcpy 游标句柄委托；全部拒绝都发生在复制工程模板之前，被拒调用不残留半成品 `.aprx` |
 | `runtime.py` | ArcPy 子进程 / Pro 当前进程 / 离线模拟的统一接口 |
 | `HostBridgeRuntime` / `ProContext.cs` | 授权后将当前地图工具转交 Pro SDK 的 QueuedTask |
 | `worker.py` | 结构化请求和结果文件协议；普通输出不参与协议解析 |

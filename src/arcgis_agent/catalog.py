@@ -9,6 +9,8 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from .symbology import CLASS_COUNTS, CLASSIFY_METHODS, LABEL_SIZES, PALETTE_NAMES
+
 
 def text(description, maximum=4096, **extra):
     return {"type": "string", "description": description, "minLength": 1, "maxLength": maximum, **extra}
@@ -30,6 +32,23 @@ ORIENTATIONS = ["LANDSCAPE", "PORTRAIT"]
 LAYOUT_ELEMENTS = ["LEGEND", "NORTH_ARROW", "SCALE_BAR", "DUAL_SCALE_BAR"]
 EXPORT_FORMATS = ["PNG", "JPEG", "PDF", "TIFF", "SVG"]
 EXPORT_EXTENSIONS = {"PNG": "png", "JPEG": "jpg", "PDF": "pdf", "TIFF": "tif", "SVG": "svg"}
+# 符号化与标注的 schema 常量直接取自 symbology 的实现常量：色板表或分级范围一改，
+# 提供给模型的 enum 随之改变，导入期即互锁（见 tests/test_symbology.py）。
+# 与 LAYERS 的 maxItems 一致：一个图层最多一条样式、一条标注。
+STYLE_ITEMS = {"type": "array", "maxItems": 12, "items": {"type": "object", "additionalProperties": False,
+                                                          "required": ["layer", "palette"],
+                                                          "properties": {
+                                                              "layer": text("要符号化的图层，必须是 layers 里的同一个绝对路径"),
+                                                              "palette": {"type": "string", "enum": PALETTE_NAMES},
+                                                              "field": text("分级或唯一值依据的字段名", 64),
+                                                              "classes": {"type": "integer", "enum": list(CLASS_COUNTS)},
+                                                              "method": {"type": "string", "enum": list(CLASSIFY_METHODS)}}}}
+LABEL_ITEMS = {"type": "array", "maxItems": 12, "items": {"type": "object", "additionalProperties": False,
+                                                          "required": ["layer", "field"],
+                                                          "properties": {
+                                                              "layer": text("要标注的图层，必须是 layers 里的同一个绝对路径"),
+                                                              "field": text("标注取自的字段名，文本或数值类型", 64),
+                                                              "size": {"type": "integer", "minimum": LABEL_SIZES[0], "maximum": LABEL_SIZES[1]}}}}
 
 
 DATASET = text("Absolute GIS dataset path; members inside .gdb or .gpkg use the full catalog path")
@@ -165,8 +184,10 @@ TOOLS = {
         "page_size": {"type": "string", "enum": PAGE_SIZE_NAMES},
         "orientation": {"type": "string", "enum": ORIENTATIONS},
         "elements": {"type": "array", "items": {"type": "string", "enum": LAYOUT_ELEMENTS}, "minItems": 0, "maxItems": 4, "uniqueItems": True},
-        "extent": MAP_EXTENT}, optional=("page_size", "orientation", "elements", "extent"), writes=True,
-        effect="在任务目录的 cartography 子目录新建独立出图工程（复制 Pro 自带空白模板，不改动任何已有工程），添加图层、图幅、图名与所选项，再用 export_layout 导出图片"),
+        "extent": MAP_EXTENT,
+        "styles": STYLE_ITEMS,
+        "labels": LABEL_ITEMS}, optional=("page_size", "orientation", "elements", "extent", "styles", "labels"), writes=True,
+        effect="在任务目录的 cartography 子目录新建独立出图工程（复制 Pro 自带空白模板，不改动任何已有工程），添加图层、按 styles 指定的预设色板符号化、按 labels 标注、加图幅图名与所选项，再用 export_layout 导出图片。换配色需重建工程"),
     "export_layout": tool("导出布局为图片或 PDF", "mp.Layout.export", {
         "project": text("Absolute .aprx path; CURRENT only in the Pro Python toolbox"),
         "layout": text("Exact layout name returned by project_info or build_layout", 120),
@@ -326,6 +347,24 @@ def validate_call(name, arguments):
             box = arguments["extent"]
             if box["xmax"] <= box["xmin"] or box["ymax"] <= box["ymin"]:
                 raise ValueError("extent 需要满足 xmax>xmin 且 ymax>ymin")
+        declared = list(arguments["layers"])
+        for what in ("styles", "labels"):
+            for entry in arguments.get(what) or []:
+                if entry["layer"] not in declared:
+                    raise ValueError(f"{what} 里的 layer「{entry['layer']}」不在 layers 中；"
+                                     f"本次 layers 是：{', '.join(declared)}。")
+        # 同一图层重复出现在 styles 或 labels 里都必须拦：JSON Schema 的 uniqueItems 管不到
+        # 对象内部，而下游按图层建字典，重复条目会被静默丢弃其一。
+        styled = []
+        for entry in arguments.get("styles") or []:
+            if entry["layer"] in styled:
+                raise ValueError(f"图层「{entry['layer']}」被符号化了两次；一个图层只能有一条 styles。")
+            styled.append(entry["layer"])
+        labelled = []
+        for entry in arguments.get("labels") or []:
+            if entry["layer"] in labelled:
+                raise ValueError(f"图层「{entry['layer']}」被标注了两次；一个图层只能有一条 labels。")
+            labelled.append(entry["layer"])
     if name == "reshape_geometry":
         operation = arguments["operation"]
         if operation == "SIMPLIFY":

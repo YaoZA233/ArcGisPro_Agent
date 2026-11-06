@@ -52,3 +52,7 @@
 ## 出图
 
 出图分两步，各自独立授权：先用 `build_layout` 在任务目录建立独立出图工程（它复制 Pro 自带空白模板，不改动用户工程），再用 `export_layout` 传入上一步返回的 `project` 与 `layout` 名称导出图片。`export_layout` 只读打开工程、绝不保存；`layout` 名称必须来自 `project_info` 或 `build_layout` 的返回。`build_layout` 的 `extent` 用图层自身坐标系的单位：地理坐标系给经纬度，投影坐标系给米；各图层坐标系不一致时先用 `project` 工具统一，或省略 `extent` 由工具取范围并集。
+
+出图前先想清楚这张图要说明什么，再用 `styles` 选色板：连续数值分级用 `BLUES`/`GREENS`/`REDS`（越高越警示用 `REDS`），双向偏离用 `RD_BU`，类别用 `CATEGORY10`，土地利用现状用 `LAND_USE`（按地类名自动配语义色），DEM 高程用 `ELEVATION`，晕渲用 `HILLSHADE_GRAY`，只想要一张干净的示意图用 `BASE`。分级必传 `field`（数值字段）；`classes`（只能取 3/5/7，默认 5）与 `method`（`EQUAL_INTERVAL` 或 `QUANTILE`，默认等间距）可省略。唯一值与土地利用传 `field`（文本或整数），不能传 `classes`/`method`。`BASE` 是示意图色板，不接受 `field`。栅格用 `ELEVATION`/`HILLSHADE_GRAY` 或任意 `SEQUENTIAL` 色板做连续色带，都不传 `field`。色板与数据类型不匹配、字段不存在或类型不对都会被拒绝并列出可用字段，按提示改即可。`labels` 传 `layer`、`field`、`size` 即可标注，栅格不能标注。
+
+配色由预设色板决定，不要试图自己指定颜色 —— 你看不见导出的图，无法判断配色好坏。返回结果里的 `symbology` 段给出了实际断点与色值，汇报时要把它说清楚（分了哪几级、每级范围、是否抽样近似），不要只说"已出图"。`LAND_USE` 的 `unmatched` 列出了没匹配上语义色的地类名，必须一并告知用户。**换配色需要重建工程**（`output_name` 不能与已有成果重名），所以第一次就尽量选对色板。

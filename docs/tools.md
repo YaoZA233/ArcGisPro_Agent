@@ -62,7 +62,7 @@ CLI 使用 `y / n / c`，回车默认拒绝。面板确认卡片展示工具、�
 | `export_features` | `dataset`, `format`, `output_name` | 导出 `GEOJSON`（`<output_name>.geojson`，转 WGS84）或 `SHAPEFILE`（`<output_name>.shp`） |
 | `import_table_points` | `dataset`, `output_name`, `lat_field?`, `lon_field?`, `wkid?` | CSV/Excel 表转点要素类；自动识别经纬度列或显式指定，坏坐标行跳过并计数；默认 WKID 4326；Excel 表需带 `Sheet1$` 之类工作表后缀 |
 | `convert_dataset` | `dataset`, `output_name` | GPKG 等矢量数据复制为 results.gdb 新要素类；KML/KMZ 解包到任务目录地理数据库并返回成员清单，可再用 copy_features 选入 results.gdb |
-| `build_layout` | `title`, `layers`, `output_name`, `page_size?`, `orientation?`, `elements?`, `extent?` | 复制 Pro 自带空白模板，在任务目录新建出图工程：一个地图 + 一个图幅 + 图名 + 图廓元素，保存为 `cartography/<output_name>.aprx`，返回工程路径、布局名、图层名、`page_mm`、`elements`、`spatial_reference`（图层坐标系名与 wkid）、`extent` 与 `extent_source`（`requested` / `data_extent`） |
+| `build_layout` | `title`, `layers`, `output_name`, `page_size?`, `orientation?`, `elements?`, `extent?`, `styles?`, `labels?` | 复制 Pro 自带空白模板，在任务目录新建出图工程：一个地图 + 一个图幅 + 图名 + 图廓元素，按 `styles`（每条 `{layer, palette, field?, classes?, method?}`）用预设色板符号化、按 `labels`（每条 `{layer, field, size?}`）用 Arcade 标注，保存为 `cartography/<output_name>.aprx`，返回工程路径、布局名、图层名、`page_mm`、`elements`、`spatial_reference`（图层坐标系名与 wkid）、`extent` 与 `extent_source`（`requested` / `data_extent`），以及 `symbology` 段（每个图层实际走的 renderer、色板、分级断点与色值、唯一值类别、`unmatched` 未配到语义色的地类名、`sampled` 是否因超过 20 万值抽样近似）与 `labels` 段（实际生效的标注图层与字段） |
 | `export_layout` | `project`, `layout?`, `format`, `output_name`, `dpi?` | 只读打开 `.aprx` 并把布局导出为 `cartography/<output_name>.<扩展名>`；不保存、不改动工程文件 |
 | `list_skills` | 无 | 列出声明式多步技能包（名称、用途、参数、步骤数、来源）；只读本地 JSON，不访问 GIS 数据 |
 | `read_skill` | `name` | 读取技能包完整步骤模板与注意事项；只读本地 JSON，执行仍须逐个调用工具并单独授权 |
@@ -102,6 +102,15 @@ CLI 使用 `y / n / c`，回车默认拒绝。面板确认卡片展示工具、�
 `extent` 省略时取全部图层范围的并集；各图层坐标系不一致会在复制模板前拒绝，需先用 `project` 统一坐标系或显式给出 `extent`（`xmax>xmin` 且 `ymax>ymin`，使用图层自身的线性单位）。图层是地理坐标系而 `extent` 给出经度 ±180／纬度 ±90 之外的数值时直接拒绝，因为 `camera.setExtent` 按地图自身的单位读数，米制数值只会导出一张空图。所有可能被拒绝的检查都排在复制模板之前，因此被拒的调用不会残留半成品 `.aprx`、也不会创建 `cartography` 目录；建图或导出中途失败会删除自己创建的文件。`project` 参数在 Pro 工具箱内可用 `CURRENT`，此时同样不保存用户工程。
 
 本机 3.5.2 实测被运行时拒绝、因此工具不提供的能力：`georeferenceMapFrame`/`worldFile` 导出选项（任意取值都报 ValueError）、按格式设置色彩模式（PNG 无该属性，TIFF/PNG 只接受枚举真彩色值）。图名与图廓元素用 `arcpy.mp` 原生 API 与 CIM 文本图形实现，样式取 Pro 默认样式库（`ArcGIS 2D` 的 NORTH_ARROW / SCALE_BAR / LEGEND 列表项）。
+
+符号化与标注（`styles` / `labels`）用 9 个预设色板，配色不开放自由调色，只能选色板，模型指定不了也看不见具体颜色：`BLUES`/`GREENS`/`REDS`/`RD_BU`（SEQUENTIAL 连续分级）、`CATEGORY10`/`LAND_USE`（QUALITATIVE 类别）、`ELEVATION`/`HILLSHADE_GRAY`（TERRAIN 地形）、`BASE`（示意图）。色板 × 数据类型兼容矩阵以 `symbology.renderer_kind` / `validate_style_spec` 为准——
+
+- **栅格**接受 6 个色板：`SEQUENTIAL` 四板 + `TERRAIN` 的 `ELEVATION`/`HILLSHADE_GRAY`，一律走连续多段色带（RASTER_RAMP），**不传 `field`**（传了会被拒）。
+- **矢量**接受 7 个色板：`SEQUENTIAL` → 分级色彩（CLASS_BREAKS，必填数值 `field`）、`QUALITATIVE`（`CATEGORY10`/`LAND_USE`）→ 唯一值（UNIQUE_VALUE，必填文本或整数 `field`）、`BASE` → 简单符号（SIMPLE，不传参数）。`TERRAIN` 用于矢量、`QUALITATIVE`/`BASE` 用于栅格都会被拒绝并列出可用色板。
+- 分级参数：`classes` 默认 5、只能取 3/5/7（预设色板只在这三档备有色值，取 4/6 会被拒）；`method` 默认 `EQUAL_INTERVAL`，只有 `EQUAL_INTERVAL` 与 `QUANTILE` 两种。超过 20 万值时按固定步长系统抽样，分位数断点变近似值，返回的 `sampled` 会如实标注。唯一值类别上限 10，超出即拒（提示改用分级或先归并类别）。
+- 轮廓固定不开放：分级用细白线（#FFFFFF 0.2）分离色块，唯一值用深灰线（#666666 0.4）强调边界。
+- `labels` 每条 `{layer, field, size?}`，用 Arcade 表达式标注，`size` 默认 9、限 6–24 pt；**栅格图层无属性字段，标注请求会被拒绝**（提示改用图名或先栅格转要素）。
+- 所有 `styles`/`labels` 拒绝（色板与类型不匹配、字段不存在或类型不对、分级参数越界、唯一值超类、栅格标注）全部发生在复制工程模板之前，被拒调用不残留半成品 `.aprx`。**换配色需要重建工程**（`output_name` 不能与已有成果重名），第一次就应选对色板。
 
 ## 失败守卫与提示
 

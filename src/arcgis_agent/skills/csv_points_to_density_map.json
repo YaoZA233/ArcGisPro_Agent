@@ -13,13 +13,14 @@
     {"tool": "import_table_points", "arguments": {"dataset": "{{params.table}}", "output_name": "points"}, "note": "自动识别经纬度列；识别失败时显式给 lat_field/lon_field，坐标系不是经纬度时给 wkid"},
     {"tool": "describe", "arguments": {"dataset": "{{steps.points.output}}"}, "note": "确认点数据坐标系与数量，坏坐标行会被跳过并计数"},
     {"tool": "kernel_density", "arguments": {"dataset": "{{steps.points.output}}", "cell_size": "{{params.cell_size}}", "output_name": "density"}, "note": "有权重字段时补 value_field；默认按计数、PLANAR"},
-    {"tool": "build_layout", "arguments": {"title": "{{params.title}}", "layers": ["{{steps.density.output}}"], "output_name": "density_map"}, "note": "可加 points 图层叠加采样点"},
+    {"tool": "build_layout", "arguments": {"title": "{{params.title}}", "layers": ["{{steps.density.output}}"], "output_name": "density_map", "styles": [{"layer": "{{steps.density.output}}", "palette": "REDS"}]}, "note": "密度越高越警示，用 REDS；可再加 points 图层配 BASE 叠加采样点"},
     {"tool": "export_layout", "arguments": {"project": "{{steps.density_map.project}}", "layout": "{{steps.density_map.layout}}", "format": "PNG", "output_name": "density_png", "dpi": 300}, "note": "project/layout 必须来自 build_layout 的真实返回"}
   ],
   "verification": "核对 import_table_points 返回的跳过行数，如实告知数据缺失；确认密度栅格与图片路径存在。",
   "pitfalls": [
     "经纬度写反会导致点落在境外或海域，先 describe 核对范围",
     "cell_size 用度还是米取决于点数据坐标系，填错数量级会得到空图或 ERROR 999999",
-    "核密度需要 Spatial Analyst；面积单位默认 SQUARE_KILOMETERS"
+    "核密度需要 Spatial Analyst；面积单位默认 SQUARE_KILOMETERS",
+    "色板与数据类型不匹配会被拒绝：ELEVATION/HILLSHADE_GRAY 只给栅格，CATEGORY10/LAND_USE/BASE 只给矢量"
   ]
 }
