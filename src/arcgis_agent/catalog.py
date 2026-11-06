@@ -9,7 +9,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from .symbology import CLASSIFY_METHODS, LABEL_SIZES, MAX_CLASSES, MIN_CLASSES, PALETTE_NAMES
+from .symbology import CLASS_COUNTS, CLASSIFY_METHODS, LABEL_SIZES, PALETTE_NAMES
 
 
 def text(description, maximum=4096, **extra):
@@ -41,7 +41,7 @@ STYLE_ITEMS = {"type": "array", "maxItems": 12, "items": {"type": "object", "add
                                                               "layer": text("要符号化的图层，必须是 layers 里的同一个绝对路径"),
                                                               "palette": {"type": "string", "enum": PALETTE_NAMES},
                                                               "field": text("分级或唯一值依据的字段名", 64),
-                                                              "classes": {"type": "integer", "minimum": MIN_CLASSES, "maximum": MAX_CLASSES},
+                                                              "classes": {"type": "integer", "enum": list(CLASS_COUNTS)},
                                                               "method": {"type": "string", "enum": list(CLASSIFY_METHODS)}}}}
 LABEL_ITEMS = {"type": "array", "maxItems": 12, "items": {"type": "object", "additionalProperties": False,
                                                           "required": ["layer", "field"],

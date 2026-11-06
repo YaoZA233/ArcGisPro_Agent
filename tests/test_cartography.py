@@ -864,6 +864,29 @@ class SymbologyWiringTests(unittest.TestCase):
         self.assertEqual(type(definition.renderer).__name__, "CIMClassBreaksRenderer")
         self.assertEqual(len(definition.renderer.breaks), 5)
 
+    def test_each_styled_layer_gets_its_own_plan_not_the_first_one(self):
+        # 终审 Minor：接线若把 plans[0] 套到所有图层（而非按 dataset 映射），两层的分级档数会相同。
+        # 这里给两层分别 3 档与 5 档，逐层断言各自 CIM renderer 的 breaks 长度，
+        # 把「正确的 plan 落到正确的图层」这条编排正确性钉死在 CIM 往返层面。
+        self.descs[LAYERS[1]] = FakeDesc(fields=[FakeField("VALUE", "Double")])
+        self.rows[LAYERS[1]] = self.rows[LAYERS[0]]
+        arguments = base(styles=[
+            {"layer": LAYERS[0], "palette": "BLUES", "field": "VALUE",
+             "classes": 3, "method": "EQUAL_INTERVAL"},
+            {"layer": LAYERS[1], "palette": "GREENS", "field": "VALUE",
+             "classes": 5, "method": "EQUAL_INTERVAL"},
+        ])
+        result, _ = self.build(arguments)
+        layers = StubProject.instances[0].maps[0].layers_added
+        self.assertEqual(len(layers), 2)
+        for layer, expected in zip(layers, (3, 5)):
+            renderer = layer.definitions_received[0].renderer
+            self.assertEqual(type(renderer).__name__, "CIMClassBreaksRenderer")
+            self.assertEqual(len(renderer.breaks), expected)
+        # 返回的 symbology 段也逐层对上：第 0 层 BLUES/3 档，第 1 层 GREENS/5 档。
+        self.assertEqual([(item["palette"], len(item["bounds"])) for item in result["symbology"]],
+                         [("BLUES", 3), ("GREENS", 5)])
+
     def test_definition_reaches_the_layer_with_labels_turned_on(self):
         arguments = self.styled()
         arguments["labels"] = [{"layer": LAYERS[0], "field": "NAME", "size": 12}]

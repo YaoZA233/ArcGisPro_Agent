@@ -107,7 +107,7 @@ CLI 使用 `y / n / c`，回车默认拒绝。面板确认卡片展示工具、�
 
 - **栅格**接受 6 个色板：`SEQUENTIAL` 四板 + `TERRAIN` 的 `ELEVATION`/`HILLSHADE_GRAY`，一律走连续多段色带（RASTER_RAMP），**不传 `field`**（传了会被拒）。
 - **矢量**接受 7 个色板：`SEQUENTIAL` → 分级色彩（CLASS_BREAKS，必填数值 `field`）、`QUALITATIVE`（`CATEGORY10`/`LAND_USE`）→ 唯一值（UNIQUE_VALUE，必填文本或整数 `field`）、`BASE` → 简单符号（SIMPLE，不传参数）。`TERRAIN` 用于矢量、`QUALITATIVE`/`BASE` 用于栅格都会被拒绝并列出可用色板。
-- 分级参数：`classes` 默认 5、限 3–7；`method` 默认 `EQUAL_INTERVAL`，只有 `EQUAL_INTERVAL` 与 `QUANTILE` 两种。超过 20 万值时按固定步长系统抽样，分位数断点变近似值，返回的 `sampled` 会如实标注。唯一值类别上限 10，超出即拒（提示改用分级或先归并类别）。
+- 分级参数：`classes` 默认 5、只能取 3/5/7（预设色板只在这三档备有色值，取 4/6 会被拒）；`method` 默认 `EQUAL_INTERVAL`，只有 `EQUAL_INTERVAL` 与 `QUANTILE` 两种。超过 20 万值时按固定步长系统抽样，分位数断点变近似值，返回的 `sampled` 会如实标注。唯一值类别上限 10，超出即拒（提示改用分级或先归并类别）。
 - 轮廓固定不开放：分级用细白线（#FFFFFF 0.2）分离色块，唯一值用深灰线（#666666 0.4）强调边界。
 - `labels` 每条 `{layer, field, size?}`，用 Arcade 表达式标注，`size` 默认 9、限 6–24 pt；**栅格图层无属性字段，标注请求会被拒绝**（提示改用图名或先栅格转要素）。
 - 所有 `styles`/`labels` 拒绝（色板与类型不匹配、字段不存在或类型不对、分级参数越界、唯一值超类、栅格标注）全部发生在复制工程模板之前，被拒调用不残留半成品 `.aprx`。**换配色需要重建工程**（`output_name` 不能与已有成果重名），第一次就应选对色板。

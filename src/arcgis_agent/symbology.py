@@ -19,7 +19,7 @@ from .analysis_tools import RASTER_TYPES
 
 KINDS = ("SEQUENTIAL", "QUALITATIVE", "TERRAIN", "BASE")
 CLASSIFY_METHODS = ("EQUAL_INTERVAL", "QUANTILE")
-MIN_CLASSES, MAX_CLASSES = 3, 7
+# 可用分级档数在 SEQUENTIAL 定义后由色板实际档数派生（见 CLASS_COUNTS），绝不写死字面量。
 # 标注字号范围（pt）：catalog.py 的 schema 上下限直接取自这里，单一事实来源。
 LABEL_SIZES = (6, 24)
 LABEL_SIZE_DEFAULT = 9
@@ -49,6 +49,13 @@ SEQUENTIAL = {
               5: ("#0571b0", "#92c5de", "#f7f7f7", "#f4a582", "#ca0020"),
               7: ("#2166ac", "#67a9cf", "#d1e5f0", "#f7f7f7", "#fddbc7", "#ef8a62", "#b2182b")},
 }
+
+# 分级矢量只能落在预设色板真正备有色值的档数上。这里对所有 SEQUENTIAL 色板的档数求交集，
+# 得到唯一的合法档数集合：schema、校验器与色板表从此同源，绝不会出现 schema 放行 classes=4/6
+# 而色板无对应色值、要到复制工程模板之后的 plan_style 才被拒的脱节（终审发现的 Important）。
+# COLORBREWER 的分档色是 3/5/7 专门调过的，不做等距补档。
+CLASS_COUNTS = tuple(sorted(set.intersection(*(set(steps) for steps in SEQUENTIAL.values()))))
+MIN_CLASSES, MAX_CLASSES = CLASS_COUNTS[0], CLASS_COUNTS[-1]
 
 # TERRAIN 只有 7 档：栅格色带恒为 6 段线性色带拼成的多段色带。
 TERRAIN = {
@@ -265,6 +272,12 @@ def validate_style_spec(style, desc):
               "CLASS_BREAKS": ()}[kind]
     for name in banned:
         if name in style:
+            # 栅格色带按内置拉伸统计上色，没有「按字段分级」这条路（SEQUENTIAL 到栅格同样走
+            # RASTER_RAMP 并同样拒绝 field）。矢量才建议「改用分级色板」；对栅格那样说会让模型
+            # 照着换一个照样被拒的色板，白跑一轮，所以栅格给专门的提示。
+            if kind == "RASTER_RAMP":
+                raise ValueError(f"栅格色带（{style['palette']}）按内置拉伸统计上色，不接受 {name} 参数；"
+                                 f"请去掉它。若要按字段分级，请先用 reclassify 离散化或转成要素类。")
             raise ValueError(f"色板 {style['palette']} 走{kind}，不接受 {name} 参数；"
                              f"请去掉它，或改用支持分级的色板（{', '.join(sorted(SEQUENTIAL))}）。")
     if kind in ("SIMPLE", "RASTER_RAMP"):
@@ -272,16 +285,19 @@ def validate_style_spec(style, desc):
     if kind == "CLASS_BREAKS":
         _check_field(style, desc, NUMERIC_FIELD_TYPES, "分级色彩", NUMERIC_REQUIREMENT)
         classes = style.get("classes", 5)
-        if not MIN_CLASSES <= classes <= MAX_CLASSES:
-            raise ValueError(f"classes 必须在 {MIN_CLASSES}–{MAX_CLASSES} 之间，收到 {classes}；"
-                             f"7 级以上制图不可读。")
+        # 合法档数来自预设色板真正备有色值的档数（CLASS_COUNTS），不是任意区间：schema 与本校验
+        # 同源，schema 放行的值这里必然同样放行，反之亦然。
+        if classes not in CLASS_COUNTS:
+            raise ValueError(f"classes 只能取 {'/'.join(str(count) for count in CLASS_COUNTS)}"
+                             f"（预设色板只在这些档数上备有色值），收到 {classes}；"
+                             f"分级超过 {MAX_CLASSES} 级制图不可读。")
         method = style.get("method", "EQUAL_INTERVAL")
         if method not in CLASSIFY_METHODS:
             raise ValueError(f"method 只能是 {' 或 '.join(CLASSIFY_METHODS)}，收到 {method}。")
         return kind
     field = _check_field(style, desc, NUMERIC_FIELD_TYPES | TEXT_FIELD_TYPES,
                          "唯一值渲染", LABELABLE_REQUIREMENT)
-    if field_types(desc)[field] in NUMERIC_FIELD_TYPES and field_types(desc)[field] in ("Float", "Double"):
+    if field_types(desc)[field] in ("Float", "Double"):
         raise ValueError(f"字段 {field} 是连续浮点数，做唯一值会产生大量类别且图例不可读；"
                          f"请改用分级色彩（{', '.join(sorted(SEQUENTIAL))}）配 field 与 classes。")
     return kind

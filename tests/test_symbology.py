@@ -4,7 +4,7 @@ from __future__ import annotations
 import unittest
 
 from arcgis_agent.catalog import LAYERS, TOOLS, validate_call
-from arcgis_agent.symbology import (CLASSIFY_METHODS, KINDS, LABEL_SIZES, MAX_CLASSES,
+from arcgis_agent.symbology import (CLASSIFY_METHODS, CLASS_COUNTS, KINDS, LABEL_SIZES, MAX_CLASSES,
                                     MAX_UNIQUE_VALUES, MIN_CLASSES, OUTLINES, PALETTE_NAMES,
                                     PALETTES, RENDERERS, VALUE_CAP, build_classes,
                                     collect_categories, collect_values, hex_rgb, land_use_color,
@@ -368,6 +368,22 @@ class ValidateStyleSpecTests(unittest.TestCase):
         validate_style_spec({"layer": "L", "palette": "BLUES", "field": "VALUE",
                              "classes": 5, "method": "EQUAL_INTERVAL"}, polygon_desc())
 
+    def test_class_breaks_accepts_every_paletted_class_count(self):
+        for count in CLASS_COUNTS:
+            validate_style_spec({"layer": "L", "palette": "REDS", "field": "VALUE",
+                                 "classes": count}, polygon_desc())
+
+    def test_class_breaks_refuses_a_class_count_without_palette_colors(self):
+        # 区间放行、色板无色——正是终审发现的那条 Important。4 与 6 必须被拒，
+        # 且错误文案点名合法档数，让模型一步改对而不是继续试别的非法值。
+        for bad in (4, 6):
+            with self.assertRaises(ValueError) as caught:
+                validate_style_spec({"layer": "L", "palette": "BLUES", "field": "VALUE",
+                                     "classes": bad}, polygon_desc())
+            message = str(caught.exception)
+            self.assertIn("3/5/7", message)
+            self.assertIn(str(bad), message)
+
     def test_class_breaks_refuses_a_text_field_and_lists_numeric_ones(self):
         with self.assertRaises(ValueError) as caught:
             validate_style_spec({"layer": "L", "palette": "BLUES", "field": "CATEGORY"},
@@ -436,6 +452,18 @@ class ValidateStyleSpecTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_style_spec({"layer": "L", "palette": "BLUES", "field": "VALUE"}, raster_desc())
 
+    def test_raster_param_refusal_does_not_nudge_toward_another_palette(self):
+        # 对栅格说「改用分级色板」是死路：SEQUENTIAL 到栅格同样走 RASTER_RAMP、同样拒 field。
+        # 错误文案必须改口给栅格专属指引，否则模型照着提示换板子只会被再拒一次。
+        for palette in ("BLUES", "ELEVATION"):
+            with self.assertRaises(ValueError) as caught:
+                validate_style_spec({"layer": "L", "palette": palette, "field": "VALUE"},
+                                    raster_desc())
+            message = str(caught.exception)
+            self.assertIn("栅格色带", message)
+            self.assertIn("reclassify", message)
+            self.assertNotIn("改用支持分级的色板", message)
+
     def test_geometry_and_oid_fields_cannot_be_styled(self):
         for field in ("SHAPE", "OBJECTID"):
             with self.assertRaises(ValueError):
@@ -499,8 +527,16 @@ class BuildLayoutSchemaTests(unittest.TestCase):
         schema = TOOLS["build_layout"].properties["styles"]["items"]["properties"]
         self.assertEqual(sorted(schema["palette"]["enum"]), PALETTE_NAMES)
         self.assertEqual(sorted(schema["method"]["enum"]), sorted(CLASSIFY_METHODS))
-        self.assertEqual(schema["classes"]["minimum"], MIN_CLASSES)
-        self.assertEqual(schema["classes"]["maximum"], MAX_CLASSES)
+        # classes 是枚举而非区间：schema 放行的每个档数都必须真有对应色值。终审发现的
+        # Important（区间放行 4/6、plan_style 才拒）从此不可能复发——schema 与色板同源。
+        self.assertEqual(schema["classes"]["enum"], list(CLASS_COUNTS))
+        self.assertNotIn("minimum", schema["classes"])
+        self.assertNotIn("maximum", schema["classes"])
+        # CLASS_COUNTS 恒等于所有 SEQUENTIAL 色板档数的交集，默认档 5 必在其中。
+        self.assertEqual(CLASS_COUNTS, tuple(sorted(set.intersection(
+            *(set(PALETTES[name]["steps"]) for name in PALETTE_NAMES
+              if PALETTES[name]["kind"] == "SEQUENTIAL")))))
+        self.assertIn(5, schema["classes"]["enum"])
 
     def test_label_size_range_matches_the_validator(self):
         # schema 上下限与 validate_label_spec 的运行时范围同源于 symbology.LABEL_SIZES：
