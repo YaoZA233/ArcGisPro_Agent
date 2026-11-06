@@ -382,7 +382,9 @@ class ValidateStyleSpecTests(unittest.TestCase):
     def test_class_breaks_requires_the_field_argument(self):
         with self.assertRaises(ValueError) as caught:
             validate_style_spec({"layer": "L", "palette": "BLUES"}, polygon_desc())
-        self.assertIn("field", str(caught.exception))
+        # style 路径带 palette：缺 field 的消息必须与 brief 逐字节一致 —— 钉住守卫的真分支。
+        self.assertEqual("色板 BLUES 走分级色彩，必须提供 field 参数；"
+                         "该数据集可用的字段有：COUNT, VALUE。", str(caught.exception))
 
     def test_unknown_method_is_refused_with_the_allowed_list(self):
         # build_classes 把未知 method 静默当成 QUANTILE；只有这道闸门拦住它。
@@ -463,6 +465,13 @@ class ValidateLabelSpecTests(unittest.TestCase):
         desc = FakeDesc("FeatureClass", "Polygon", (("WHEN", "Date"),))
         with self.assertRaises(ValueError):
             validate_label_spec({"layer": "L", "field": "WHEN"}, desc)
+
+    def test_absent_field_key_raises_value_error_not_keyerror(self):
+        # 标注 spec 没有 palette 键；缺 field 也必须报中文 ValueError 而非 KeyError('palette')
+        # —— 钉住 _check_field 的守卫（symbology.py 的 subject 分支），删掉守卫本测试即红。
+        with self.assertRaises(ValueError) as caught:
+            validate_label_spec({"layer": "L"}, polygon_desc())
+        self.assertIn("field", str(caught.exception))
 
 
 if __name__ == "__main__":
