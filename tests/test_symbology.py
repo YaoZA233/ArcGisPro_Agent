@@ -586,5 +586,331 @@ class BuildLayoutCrossValidationTests(unittest.TestCase):
                 elements=["SCALE_BAR", "DUAL_SCALE_BAR"]))
 
 
+# ---------------------------------------------------------------------------
+# Task 5: CIM 助手与矢量 renderer。
+# 桩类名一律用真机探测证明的 CIM* 大写名（probe_cim2 的 arcpy.cim 目录）：
+# paint_symbol 按 type(node).__name__ 分派，桩若叫 Cim* 就永远匹配不上，
+# 测试会绿得毫无意义。
+# ---------------------------------------------------------------------------
+from arcgis_agent.symbology import CATEGORY10
+from arcgis_agent.symbology import apply_renderer, paint_symbol, plan_style, rgb_color
+
+
+class CIMRGBColor:
+    def __init__(self):
+        self.values = None
+
+
+class CIMSolidFill:
+    def __init__(self):
+        self.color = None
+
+
+class CIMSolidStroke:
+    def __init__(self):
+        self.color = None
+        self.width = 0.7
+
+
+class CIMVectorMarker:
+    def __init__(self):
+        self.size = 10.0
+        self.markerGraphics = []
+
+
+class CIMPolygonSymbol:
+    def __init__(self, layers=None):
+        self.symbolLayers = layers if layers is not None else [CIMSolidStroke(), CIMSolidFill()]
+
+
+class CIMSymbolReference:
+    def __init__(self, symbol=None):
+        self.symbol = symbol if symbol is not None else CIMPolygonSymbol()
+
+
+class CIMClassBreak:
+    def __init__(self):
+        self.upperBound = 0
+        self.label = ""
+        self.symbol = None
+
+
+class CIMClassBreaksRenderer:
+    def __init__(self):
+        self.field = ""
+        self.classBreakType = ""
+        self.minimumBreak = 0
+        self.breaks = []
+
+
+class CIMUniqueValue:
+    def __init__(self):
+        self.fieldValues = []
+
+
+class CIMUniqueValueClass:
+    def __init__(self):
+        self.values = []
+        self.label = ""
+        self.symbol = None
+        self.visible = False
+        self.editable = False
+
+
+class CIMUniqueValueGroup:
+    def __init__(self):
+        self.classes = []
+        self.heading = ""
+
+
+class CIMUniqueValueRenderer:
+    def __init__(self):
+        self.fields = []
+        self.groups = []
+        self.useDefaultSymbol = False
+        self.defaultSymbol = None
+        self.defaultLabel = ""
+
+
+class StubCim:
+    CIMRGBColor = CIMRGBColor
+    CIMClassBreak = CIMClassBreak
+    CIMClassBreaksRenderer = CIMClassBreaksRenderer
+    CIMUniqueValue = CIMUniqueValue
+    CIMUniqueValueClass = CIMUniqueValueClass
+    CIMUniqueValueGroup = CIMUniqueValueGroup
+    CIMUniqueValueRenderer = CIMUniqueValueRenderer
+
+
+class StubArcpy:
+    """只有 symbology 会碰的那一小截表面；真实构造形态由真机冒烟证明。"""
+    cim = StubCim()
+
+
+class StubRenderer:
+    def __init__(self):
+        self.symbol = CIMSymbolReference()
+
+
+class StubDefinition:
+    def __init__(self):
+        self.renderer = StubRenderer()
+
+
+def prototype_colors(symbol_ref):
+    """把符号里的填充色与轮廓色读出来，供断言。"""
+    fills, strokes = [], []
+    stack = [symbol_ref]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, list):
+            stack.extend(node)
+            continue
+        if isinstance(node, CIMSolidFill):
+            fills.append(node.color.values)
+        elif isinstance(node, CIMSolidStroke):
+            strokes.append((node.color.values, node.width))
+        for name in ("symbol", "symbolLayers", "markerGraphics"):
+            if hasattr(node, name):
+                stack.append(getattr(node, name))
+    return fills, strokes
+
+
+class RgbColorTests(unittest.TestCase):
+    def test_color_lands_in_values_not_in_named_attributes(self):
+        # 实测铁律：red=/green=/blue= 会被静默忽略，渲成灰色。
+        made = rgb_color(StubArcpy(), "#08519c")
+        self.assertEqual(made.values, [8, 81, 156, 100])
+
+    def test_alpha_can_be_lowered(self):
+        self.assertEqual(rgb_color(StubArcpy(), "#ffffff", alpha=50).values[3], 50)
+
+
+class PaintSymbolTests(unittest.TestCase):
+    def test_paints_fill_and_stroke_separately(self):
+        reference = CIMSymbolReference()
+        changed = paint_symbol(StubArcpy(), reference, fill="#08519c", stroke="#FFFFFF", width=0.2)
+        fills, strokes = prototype_colors(reference)
+        self.assertEqual(fills, [[8, 81, 156, 100]])
+        self.assertEqual(strokes, [([255, 255, 255, 100], 0.2)])
+        self.assertEqual(changed, {"fill": 1, "stroke": 1, "width": 1, "size": 0})
+
+    def test_fill_only_leaves_the_stroke_alone(self):
+        reference = CIMSymbolReference()
+        original = reference.symbol.symbolLayers[0].color
+        paint_symbol(StubArcpy(), reference, fill="#3182bd")
+        self.assertIs(reference.symbol.symbolLayers[0].color, original)
+
+    def test_marker_size_is_set_for_points(self):
+        marker = CIMVectorMarker()
+        graphic_symbol = CIMPolygonSymbol()
+        marker.markerGraphics = [type("G", (), {"symbol": graphic_symbol})()]
+        reference = CIMSymbolReference(marker)
+        changed = paint_symbol(StubArcpy(), reference, fill="#3B6E8F", size=6.0)
+        self.assertEqual(marker.size, 6.0)
+        self.assertEqual(changed["size"], 1)
+
+
+class ApplyClassBreaksTests(unittest.TestCase):
+    def plan(self):
+        return {"renderer": "CLASS_BREAKS", "palette": "BLUES", "field": "VALUE",
+                "method": "EQUAL_INTERVAL", "classes": 5, "minimum": 5.0,
+                "bounds": [25.8, 46.6, 67.4, 88.2, 109.0],
+                "colors": palette_colors("BLUES", 5), "sampled": False, "value_count": 9}
+
+    def test_breaks_container_is_used_not_classbreaks(self):
+        definition = StubDefinition()
+        apply_renderer(StubArcpy(), definition, self.plan())
+        renderer = definition.renderer
+        self.assertIsInstance(renderer, CIMClassBreaksRenderer)
+        self.assertEqual(len(renderer.breaks), 5)
+        self.assertFalse(hasattr(renderer, "classBreaks"))
+
+    def test_each_break_carries_its_own_upper_bound_label_and_color(self):
+        definition = StubDefinition()
+        apply_renderer(StubArcpy(), definition, self.plan())
+        bounds = [item.upperBound for item in definition.renderer.breaks]
+        self.assertEqual(bounds, [25.8, 46.6, 67.4, 88.2, 109.0])
+        # 颜色以 values 列表形式落在符号里，所以期望值也必须是 list 而非 tuple。
+        actual = [prototype_colors(item.symbol)[0][0]
+                  for item in definition.renderer.breaks]
+        self.assertEqual(actual[4], [8, 81, 156, 100])    # #08519c，最深一档
+        self.assertEqual(actual[3], [49, 130, 189, 100])  # #3182bd
+        self.assertEqual(actual[0], [239, 243, 255, 100])  # #eff3ff，最浅一档
+
+    def test_field_and_break_type_are_set(self):
+        definition = StubDefinition()
+        apply_renderer(StubArcpy(), definition, self.plan())
+        self.assertEqual(definition.renderer.field, "VALUE")
+        self.assertEqual(definition.renderer.classBreakType, "GraduatedColor")
+        self.assertEqual(definition.renderer.minimumBreak, 5.0)
+
+    def test_every_class_symbol_is_a_distinct_object(self):
+        # 共用同一个符号对象会让五级渲成同一种颜色。
+        definition = StubDefinition()
+        apply_renderer(StubArcpy(), definition, self.plan())
+        symbols = [id(item.symbol) for item in definition.renderer.breaks]
+        self.assertEqual(len(set(symbols)), 5)
+
+
+class ApplyUniqueValueTests(unittest.TestCase):
+    def plan(self, palette="CATEGORY10"):
+        categories = ["水体", "林地", "耕地", "建成区", "草地"]
+        colors = [land_use_color(item)[0] if palette == "LAND_USE" else CATEGORY10[i]
+                  for i, item in enumerate(categories)]
+        return {"renderer": "UNIQUE_VALUE", "palette": palette, "field": "CATEGORY",
+                "categories": categories, "colors": colors, "unmatched": []}
+
+    def test_groups_container_wraps_the_classes(self):
+        definition = StubDefinition()
+        apply_renderer(StubArcpy(), definition, self.plan())
+        renderer = definition.renderer
+        self.assertIsInstance(renderer, CIMUniqueValueRenderer)
+        self.assertEqual(len(renderer.groups), 1)
+        self.assertEqual(len(renderer.groups[0].classes), 5)
+        self.assertEqual(renderer.fields, ["CATEGORY"])
+
+    def test_each_class_carries_its_field_value_and_label(self):
+        definition = StubDefinition()
+        apply_renderer(StubArcpy(), definition, self.plan())
+        first = definition.renderer.groups[0].classes[0]
+        self.assertEqual(first.values[0].fieldValues, ["水体"])
+        self.assertEqual(first.label, "水体")
+        self.assertTrue(first.visible)
+
+    def test_land_use_semantic_colors_reach_the_symbols(self):
+        definition = StubDefinition()
+        apply_renderer(StubArcpy(), definition, self.plan("LAND_USE"))
+        water = definition.renderer.groups[0].classes[0]
+        self.assertEqual(prototype_colors(water.symbol)[0][0], [59, 125, 191, 100])
+
+
+class ApplySimpleTests(unittest.TestCase):
+    def test_polygon_gets_fill_and_outline(self):
+        definition = StubDefinition()
+        apply_renderer(StubArcpy(), definition, {
+            "renderer": "SIMPLE", "palette": "BASE", "geometry": "Polygon",
+            "fill": "#DCE6F1", "outline": "#5B7A99", "outline_width": 0.7})
+        fills, strokes = prototype_colors(definition.renderer.symbol)
+        self.assertEqual(fills, [[220, 230, 241, 100]])
+        self.assertEqual(strokes, [([91, 122, 153, 100], 0.7)])
+
+    def test_line_paints_the_stroke_only(self):
+        definition = StubDefinition()
+        definition.renderer.symbol = CIMSymbolReference(
+            type("L", (), {"symbolLayers": [CIMSolidStroke()]})())
+        apply_renderer(StubArcpy(), definition, {
+            "renderer": "SIMPLE", "palette": "BASE", "geometry": "Polyline",
+            "fill": None, "outline": "#4D4D4D", "outline_width": 1.2})
+        _, strokes = prototype_colors(definition.renderer.symbol)
+        self.assertEqual(strokes, [([77, 77, 77, 100], 1.2)])
+
+    def test_point_sets_marker_size(self):
+        marker = CIMVectorMarker()
+        marker.markerGraphics = [type("G", (), {"symbol": CIMPolygonSymbol()})()]
+        definition = StubDefinition()
+        definition.renderer.symbol = CIMSymbolReference(marker)
+        apply_renderer(StubArcpy(), definition, {
+            "renderer": "SIMPLE", "palette": "BASE", "geometry": "Point",
+            "fill": "#3B6E8F", "outline": "#FFFFFF", "outline_width": 0.5, "size": 6.0})
+        self.assertEqual(marker.size, 6.0)
+
+
+class PlanStyleTests(unittest.TestCase):
+    def test_class_breaks_plan_reads_values_and_computes_bounds(self):
+        fake = FakeArcpy([(v,) for v in NINE])
+        fake.cim = StubCim()
+        plan = plan_style(fake, {"layer": "L", "palette": "BLUES", "field": "VALUE",
+                                 "classes": 5, "method": "EQUAL_INTERVAL"}, "L", polygon_desc())
+        self.assertEqual(plan["renderer"], "CLASS_BREAKS")
+        self.assertEqual(plan["bounds"][-1], 109.0)
+        self.assertEqual(len(plan["colors"]), 5)
+        self.assertFalse(plan["sampled"])
+        self.assertEqual(plan["value_count"], 9)
+
+    def test_unique_value_plan_collects_sorted_categories(self):
+        fake = FakeArcpy([("林地",), ("水体",), ("耕地",)])
+        fake.cim = StubCim()
+        plan = plan_style(fake, {"layer": "L", "palette": "CATEGORY10", "field": "CATEGORY"},
+                          "L", polygon_desc())
+        self.assertEqual(plan["categories"], sorted(["林地", "水体", "耕地"]))
+        self.assertEqual(len(plan["colors"]), 3)
+
+    def test_unique_value_over_the_limit_is_refused_with_the_real_count(self):
+        fake = FakeArcpy([(f"类{i}",) for i in range(MAX_UNIQUE_VALUES + 2)])
+        fake.cim = StubCim()
+        with self.assertRaises(ValueError) as caught:
+            plan_style(fake, {"layer": "L", "palette": "CATEGORY10", "field": "CATEGORY"},
+                       "L", polygon_desc())
+        self.assertIn(str(MAX_UNIQUE_VALUES), str(caught.exception))
+
+    def test_land_use_reports_unmatched_values(self):
+        fake = FakeArcpy([("水体",), ("其他",), ("未知类",)])
+        fake.cim = StubCim()
+        plan = plan_style(fake, {"layer": "L", "palette": "LAND_USE", "field": "CATEGORY"},
+                          "L", polygon_desc())
+        self.assertEqual(plan["unmatched"], ["其他", "未知类"])
+
+    def test_simple_plan_needs_no_data_read(self):
+        fake = FakeArcpy([])
+        fake.cim = StubCim()
+        plan = plan_style(fake, {"layer": "L", "palette": "BASE"}, "L", polygon_desc())
+        self.assertEqual(plan["renderer"], "SIMPLE")
+        self.assertEqual(plan["geometry"], "Polygon")
+        self.assertEqual(fake.cursor_calls, [])
+
+    def test_sampling_is_reported_in_the_plan(self):
+        # total 必须真的超过 VALUE_CAP 才会走抽样分支：桩只给 50 行但谎报总量，
+        # collect_values 会按 stride 抽取，这正是要覆盖的路径。
+        # 若这里写成 total=50，测试会绿但抽样代码一行都没跑到。
+        fake = FakeArcpy([(float(i),) for i in range(50)], total=VALUE_CAP * 2 + 7)
+        fake.cim = StubCim()
+        plan = plan_style(fake, {"layer": "L", "palette": "BLUES", "field": "VALUE",
+                                 "classes": 3}, "L", polygon_desc())
+        self.assertTrue(plan["sampled"])
+        self.assertEqual(plan["value_count"], VALUE_CAP * 2 + 7)
+        self.assertEqual(len(plan["bounds"]), 3)
+
+
 if __name__ == "__main__":
     unittest.main()

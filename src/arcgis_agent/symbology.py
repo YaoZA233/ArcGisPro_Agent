@@ -12,6 +12,7 @@
 """
 from __future__ import annotations
 
+import copy
 import math
 
 from .analysis_tools import RASTER_TYPES
@@ -294,3 +295,186 @@ def validate_label_spec(label, desc):
     size = label.get("size", LABEL_SIZE_DEFAULT)
     if not LABEL_SIZES[0] <= size <= LABEL_SIZES[1]:
         raise ValueError(f"标注字号必须在 {LABEL_SIZES[0]}–{LABEL_SIZES[1]} pt 之间，收到 {size}。")
+
+
+def rgb_color(arcpy, hexcolor, alpha=100):
+    """CIMRGBColor 的颜色存在 values 里。red=/green=/blue= 关键字会被静默忽略并渲成灰色。"""
+    red, green, blue = hex_rgb(hexcolor)
+    color = arcpy.cim.CIMRGBColor()
+    color.values = [red, green, blue, alpha]
+    return color
+
+
+def _walk_symbol(node, depth=0):
+    if depth > 9 or node is None:
+        return
+    if isinstance(node, list):
+        for item in node:
+            yield from _walk_symbol(item, depth + 1)
+        return
+    yield node
+    for name in ("symbol", "symbolLayers", "markerGraphics", "graphic"):
+        if hasattr(node, name):
+            yield from _walk_symbol(getattr(node, name), depth + 1)
+
+
+def paint_symbol(arcpy, symbol_ref, fill=None, stroke=None, width=None, size=None):
+    """原地改一个 CIMSymbolReference 内部的颜色与尺寸，返回各类改动计数。
+
+    只认 CIMSolidFill / CIMSolidStroke / CIMVectorMarker 三种节点：实测表明改运行时
+    生成的默认符号有效，而从零构造的符号会落盘却不渲染。
+    arcpy 一律按参数传入、不藏进模块级全局 —— 这是本仓库能离线单测的前提。
+    """
+    changed = {"fill": 0, "stroke": 0, "width": 0, "size": 0}
+    for node in _walk_symbol(symbol_ref):
+        kind = type(node).__name__
+        if kind == "CIMSolidFill" and fill is not None:
+            node.color = rgb_color(arcpy, fill)
+            changed["fill"] += 1
+        elif kind == "CIMSolidStroke" and stroke is not None:
+            node.color = rgb_color(arcpy, stroke)
+            changed["stroke"] += 1
+            if width is not None:
+                node.width = width
+                changed["width"] += 1
+        elif kind == "CIMVectorMarker" and size is not None:
+            node.size = size
+            changed["size"] += 1
+    return changed
+
+
+def _class_breaks(arcpy, prototype, plan):
+    outline, width = OUTLINES["CLASS_BREAKS"]
+    renderer = arcpy.cim.CIMClassBreaksRenderer()
+    renderer.field = plan["field"]
+    renderer.classBreakType = "GraduatedColor"
+    renderer.minimumBreak = plan["minimum"]
+    breaks = []
+    lower = plan["minimum"]
+    for index, upper in enumerate(plan["bounds"]):
+        entry = arcpy.cim.CIMClassBreak()
+        entry.upperBound = upper
+        entry.label = f"{lower:g} - {upper:g}"
+        symbol = copy.deepcopy(prototype)
+        paint_symbol(arcpy, symbol, fill=plan["colors"][index], stroke=outline, width=width)
+        entry.symbol = symbol
+        breaks.append(entry)
+        lower = upper
+    # 容器属性叫 breaks；classBreaks 不是真实属性，赋值会被静默丢弃。
+    renderer.breaks = breaks
+    return renderer
+
+
+def _unique_value(arcpy, prototype, plan):
+    outline, width = OUTLINES["UNIQUE_VALUE"]
+    renderer = arcpy.cim.CIMUniqueValueRenderer()
+    renderer.fields = [plan["field"]]
+    renderer.useDefaultSymbol = True
+    renderer.defaultLabel = "其他"
+    default_symbol = copy.deepcopy(prototype)
+    paint_symbol(arcpy, default_symbol, fill=PALETTES["LAND_USE"]["fallback"],
+                 stroke=outline, width=width)
+    renderer.defaultSymbol = default_symbol
+    classes = []
+    for index, category in enumerate(plan["categories"]):
+        value = arcpy.cim.CIMUniqueValue()
+        value.fieldValues = [category]
+        entry = arcpy.cim.CIMUniqueValueClass()
+        entry.values = [value]
+        entry.label = category
+        entry.visible = True
+        entry.editable = True
+        symbol = copy.deepcopy(prototype)
+        paint_symbol(arcpy, symbol, fill=plan["colors"][index], stroke=outline, width=width)
+        entry.symbol = symbol
+        classes.append(entry)
+    # 容器属性叫 groups，中间还有一层 CIMUniqueValueGroup；直接赋 classes 会被丢弃。
+    group = arcpy.cim.CIMUniqueValueGroup()
+    group.classes = classes
+    group.heading = ""
+    renderer.groups = [group]
+    return renderer
+
+
+def _simple(arcpy, prototype, plan):
+    paint_symbol(arcpy, prototype, fill=plan.get("fill"), stroke=plan.get("outline"),
+                 width=plan.get("outline_width"), size=plan.get("size"))
+    return None
+
+
+def apply_renderer(arcpy, definition, plan):
+    """按 plan 原地改符号。SIMPLE 直接改默认符号，不新建 renderer。
+
+    RASTER_RAMP 必须在读 definition.renderer 之前就分派出去：栅格图层的 renderer 恒为
+    None（实测结论），先取 .symbol 会直接 AttributeError。分派顺序本身就是这条实测
+    约束的落地，不要为了"看起来整齐"把它挪到后面。
+    apply_raster_ramp 的实现体在 Task 6 补齐；本任务的测试不触及栅格路径。
+    """
+    kind = plan["renderer"]
+    if kind == "RASTER_RAMP":
+        apply_raster_ramp(arcpy, definition, plan)
+        return
+    if kind == "SIMPLE":
+        _simple(arcpy, definition.renderer.symbol, plan)
+        return
+    prototype = copy.deepcopy(definition.renderer.symbol)
+    if kind == "CLASS_BREAKS":
+        definition.renderer = _class_breaks(arcpy, prototype, plan)
+    elif kind == "UNIQUE_VALUE":
+        definition.renderer = _unique_value(arcpy, prototype, plan)
+    else:
+        raise ValueError(f"未实现的 renderer：{kind}")
+
+
+def plan_style(arcpy, style, dataset, desc):
+    """前置阶段编排器：校验 → 读值 → 算断点/唯一值 → 返回 plan。
+
+    这一步全部发生在复制工程模板之前，因此任何拒绝都不会残留半成品 .aprx。
+    返回的 plan 既交给 apply_renderer，也原样回报给模型 —— 模型看不见图，
+    只有拿到断点与实际色值才能如实说明「这张图是怎么分级的」。
+    """
+    kind = validate_style_spec(style, desc)
+    palette = style["palette"]
+    plan = {"layer": dataset, "palette": palette, "renderer": kind}
+    if kind == "SIMPLE":
+        base = PALETTES["BASE"]
+        geometry = _geometry(desc)
+        plan["geometry"] = geometry
+        if geometry == "Polygon":
+            plan.update({"fill": base["fill"], "outline": base["outline"],
+                         "outline_width": base["outline_width"]})
+        elif geometry == "Polyline":
+            plan.update({"fill": None, "outline": base["line"],
+                         "outline_width": base["line_width"]})
+        else:
+            plan.update({"fill": base["point"], "outline": base["point_outline"],
+                         "outline_width": 0.5, "size": base["point_size"]})
+        return plan
+    if kind == "CLASS_BREAKS":
+        classes = style.get("classes", 5)
+        method = style.get("method", "EQUAL_INTERVAL")
+        values, sampled, total = collect_values(arcpy, dataset, style["field"])
+        result = build_classes(values, classes, method)
+        plan.update({"field": style["field"], "method": method, "classes": classes,
+                     "minimum": result["minimum"], "maximum": result["maximum"],
+                     "bounds": result["bounds"], "colors": list(palette_colors(palette, classes)),
+                     "sampled": sampled, "value_count": total})
+        return plan
+    categories, exceeded = collect_categories(arcpy, dataset, style["field"])
+    if exceeded:
+        raise ValueError(f"字段 {style['field']} 的唯一值超过 {MAX_UNIQUE_VALUES} 类"
+                         f"（已数到 {len(categories)} 仍未数完），分类图不可读；"
+                         f"请改用分级色彩（{', '.join(sorted(SEQUENTIAL))}），"
+                         f"或先用 dissolve / calculate_field 归并类别。")
+    if not categories:
+        raise ValueError(f"字段 {style['field']} 没有非空的类别值，无法做唯一值渲染。")
+    if palette == "LAND_USE":
+        pairs = [(item, land_use_color(item)) for item in categories]
+        colors = [color for _, (color, _) in pairs]
+        unmatched = [item for item, (_, matched) in pairs if not matched]
+    else:
+        colors = list(PALETTES[palette]["colors"][:len(categories)])
+        unmatched = []
+    plan.update({"field": style["field"], "categories": categories, "colors": colors,
+                 "unmatched": unmatched})
+    return plan
