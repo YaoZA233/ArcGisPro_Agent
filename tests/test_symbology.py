@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import unittest
 
+from arcgis_agent.catalog import TOOLS, validate_call
 from arcgis_agent.symbology import (CLASSIFY_METHODS, KINDS, MAX_CLASSES, MAX_UNIQUE_VALUES,
                                     MIN_CLASSES, OUTLINES, PALETTE_NAMES, PALETTES, RENDERERS,
                                     VALUE_CAP, build_classes, collect_categories, collect_values,
@@ -472,6 +473,91 @@ class ValidateLabelSpecTests(unittest.TestCase):
         with self.assertRaises(ValueError) as caught:
             validate_label_spec({"layer": "L"}, polygon_desc())
         self.assertIn("field", str(caught.exception))
+
+
+def base_layout(**extra):
+    arguments = {"title": "湖南省坡度分级图", "layers": ["C:/d.gdb/slope"],
+                 "output_name": "slope_map"}
+    arguments.update(extra)
+    return arguments
+
+
+class BuildLayoutSchemaTests(unittest.TestCase):
+    def test_styles_and_labels_are_optional_additions(self):
+        properties = TOOLS["build_layout"].properties
+        self.assertIn("styles", properties)
+        self.assertIn("labels", properties)
+        for name in ("styles", "labels"):
+            self.assertNotIn(name, TOOLS["build_layout"].required)
+            self.assertEqual(properties[name]["type"], "array")
+            self.assertEqual(properties[name]["maxItems"], 12)
+
+    def test_style_enum_matches_the_palette_table(self):
+        # schema 常量与实现常量互锁：色板表改了而 schema 没改，这里就会红。
+        schema = TOOLS["build_layout"].properties["styles"]["items"]["properties"]
+        self.assertEqual(sorted(schema["palette"]["enum"]), PALETTE_NAMES)
+        self.assertEqual(sorted(schema["method"]["enum"]), sorted(CLASSIFY_METHODS))
+        self.assertEqual(schema["classes"]["minimum"], MIN_CLASSES)
+        self.assertEqual(schema["classes"]["maximum"], MAX_CLASSES)
+
+    def test_label_size_range_matches_the_validator(self):
+        schema = TOOLS["build_layout"].properties["labels"]["items"]["properties"]
+        self.assertEqual(schema["size"]["minimum"], 6)
+        self.assertEqual(schema["size"]["maximum"], 24)
+
+    def test_tool_count_is_unchanged(self):
+        # 本期不新增任何 LLM 可见工具。
+        self.assertEqual(len(TOOLS), 62)
+
+
+class BuildLayoutCrossValidationTests(unittest.TestCase):
+    def test_bare_call_still_validates(self):
+        validate_call("build_layout", base_layout())
+
+    def test_style_targeting_an_unknown_layer_is_refused(self):
+        with self.assertRaises(ValueError) as caught:
+            validate_call("build_layout", base_layout(
+                styles=[{"layer": "C:/d.gdb/other", "palette": "BLUES"}]))
+        self.assertIn("C:/d.gdb/slope", str(caught.exception))
+
+    def test_label_targeting_an_unknown_layer_is_refused(self):
+        with self.assertRaises(ValueError) as caught:
+            validate_call("build_layout", base_layout(
+                labels=[{"layer": "C:/d.gdb/other", "field": "NAME"}]))
+        self.assertIn("layers", str(caught.exception))
+
+    def test_styling_the_same_layer_twice_is_refused(self):
+        with self.assertRaises(ValueError) as caught:
+            validate_call("build_layout", base_layout(
+                styles=[{"layer": "C:/d.gdb/slope", "palette": "BLUES"},
+                        {"layer": "C:/d.gdb/slope", "palette": "REDS"}]))
+        self.assertIn("两次", str(caught.exception))
+
+    def test_too_many_styles_is_refused_by_the_schema(self):
+        # layers 用满 12 个（合法），styles 给 13 条（非法）：这样触发的是 styles 自己的
+        # maxItems。若 layers 也给 13 个，先失败的会是 layers，这条测试就测错了约束。
+        # catalog._validate 的 label 是点路径，数组超限报 "invalid number of items"。
+        layers = [f"C:/d.gdb/l{i}" for i in range(12)]
+        styles = [{"layer": layers[index % 12], "palette": "BASE"} for index in range(13)]
+        with self.assertRaises(ValueError) as caught:
+            validate_call("build_layout", base_layout(layers=layers, styles=styles))
+        self.assertIn("build_layout.styles", str(caught.exception))
+        self.assertIn("invalid number of items", str(caught.exception))
+
+    def test_too_many_labels_is_refused_by_the_schema(self):
+        layers = [f"C:/d.gdb/l{i}" for i in range(12)]
+        labels = [{"layer": layers[index % 12], "field": "NAME"} for index in range(13)]
+        with self.assertRaises(ValueError) as caught:
+            validate_call("build_layout", base_layout(layers=layers, labels=labels))
+        self.assertIn("build_layout.labels", str(caught.exception))
+
+    def test_empty_styles_and_labels_are_allowed(self):
+        validate_call("build_layout", base_layout(styles=[], labels=[]))
+
+    def test_existing_scale_bar_exclusion_still_holds(self):
+        with self.assertRaises(ValueError):
+            validate_call("build_layout", base_layout(
+                elements=["SCALE_BAR", "DUAL_SCALE_BAR"]))
 
 
 if __name__ == "__main__":
