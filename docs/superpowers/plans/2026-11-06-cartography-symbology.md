@@ -71,7 +71,8 @@ HEX = "#0123456789abcdefABCDEF"
 
 class PaletteTableTests(unittest.TestCase):
     def test_names_are_sorted_and_match_table(self):
-        self.assertEqual(PALETTES, sorted(PALETTES))
+        # PALETTES 本身按键排序，使错误消息里列举的色板顺序与 schema enum 都是确定的。
+        self.assertEqual(list(PALETTES), sorted(PALETTES))
         self.assertEqual(PALETTE_NAMES, sorted(PALETTES))
         self.assertEqual(len(PALETTE_NAMES), 9)
 
@@ -281,6 +282,8 @@ PALETTES.update({name: {"kind": "TERRAIN", "steps": steps} for name, steps in TE
 PALETTES["CATEGORY10"] = {"kind": "QUALITATIVE", "colors": CATEGORY10}
 PALETTES["LAND_USE"] = {"kind": "QUALITATIVE", "semantic": LAND_USE_SEMANTIC, "fallback": "#9E9E9E"}
 PALETTES["BASE"] = dict(BASE, kind="BASE")
+# 按名字重排一次：字典插入顺序取决于上面几个 update 的先后，重排后错误消息与 enum 顺序才稳定。
+PALETTES = {name: PALETTES[name] for name in sorted(PALETTES)}
 PALETTE_NAMES = sorted(PALETTES)
 
 
@@ -810,8 +813,6 @@ from .analysis_tools import RASTER_TYPES
 
 ```python
 RENDERERS = ("CLASS_BREAKS", "UNIQUE_VALUE", "SIMPLE", "RASTER_RAMP")
-UNLABELABLE = frozenset({"OID", "Geometry", "Blob", "Raster", "GUID", "GlobalID", "XML",
-                         "Date", "DateOnly", "TimeOnly", "DateTimeOffset"})
 
 
 def field_types(desc):
@@ -852,22 +853,29 @@ def renderer_kind(name, desc):
                      f"矢量请用 {', '.join(sorted(SEQUENTIAL) + ['CATEGORY10', 'LAND_USE', 'BASE'])}。")
 
 
-def _check_field(style, desc, allowed, wanted):
+def _check_field(style, desc, allowed, wanted, requirement):
+    """校验并返回字段名。
+
+    requirement 是写给用户看的类型要求说明，必须出现在错误消息里 —— 只说「类型不对」
+    而不说「要什么类型」，模型就没法自己纠正。可用字段列表按 allowed 过滤后给出，
+    让模型能直接挑一个合法的换上。
+    """
     fields = field_types(desc)
     field = style.get("field")
+    usable = ", ".join(k for k, v in sorted(fields.items()) if v in allowed) or "（无）"
     if not field:
         raise ValueError(f"色板 {style['palette']} 走{wanted}，必须提供 field 参数；"
-                         f"可用字段：{', '.join(sorted(fields))}。")
+                         f"该数据集可用的字段有：{usable}。")
     if field not in fields:
         raise ValueError(f"字段 {field} 不存在；该数据集的字段有：{', '.join(sorted(fields))}。")
-    if fields[field] in UNLABELABLE:
-        raise ValueError(f"字段 {field} 是 {fields[field]} 类型，不能用来{wanted}；"
-                         f"可用字段：{', '.join(k for k, v in sorted(fields.items()) if v in allowed)}。")
     if fields[field] not in allowed:
-        raise ValueError(f"字段 {field} 是 {fields[field]} 类型，不能用来{wanted}；"
-                         f"该数据集的{wanted}可用字段有："
-                         f"{', '.join(k for k, v in sorted(fields.items()) if v in allowed)}。")
+        raise ValueError(f"字段 {field} 是 {fields[field]} 类型，而{wanted}要求{requirement}；"
+                         f"该数据集可用的字段有：{usable}。")
     return field
+
+
+NUMERIC_REQUIREMENT = "数值类型（Integer / SmallInteger / Float / Double）"
+LABELABLE_REQUIREMENT = "文本或数值类型（日期字段请先在 ArcGIS Pro 里格式化成文本）"
 
 
 def validate_style_spec(style, desc):
@@ -886,7 +894,7 @@ def validate_style_spec(style, desc):
     if kind in ("SIMPLE", "RASTER_RAMP"):
         return kind
     if kind == "CLASS_BREAKS":
-        _check_field(style, desc, NUMERIC_FIELD_TYPES, "分级色彩")
+        _check_field(style, desc, NUMERIC_FIELD_TYPES, "分级色彩", NUMERIC_REQUIREMENT)
         classes = style.get("classes", 5)
         if not MIN_CLASSES <= classes <= MAX_CLASSES:
             raise ValueError(f"classes 必须在 {MIN_CLASSES}–{MAX_CLASSES} 之间，收到 {classes}；"
@@ -895,7 +903,8 @@ def validate_style_spec(style, desc):
         if method not in CLASSIFY_METHODS:
             raise ValueError(f"method 只能是 {' 或 '.join(CLASSIFY_METHODS)}，收到 {method}。")
         return kind
-    field = _check_field(style, desc, NUMERIC_FIELD_TYPES | TEXT_FIELD_TYPES, "唯一值渲染")
+    field = _check_field(style, desc, NUMERIC_FIELD_TYPES | TEXT_FIELD_TYPES,
+                         "唯一值渲染", LABELABLE_REQUIREMENT)
     if field_types(desc)[field] in NUMERIC_FIELD_TYPES and field_types(desc)[field] in ("Float", "Double"):
         raise ValueError(f"字段 {field} 是连续浮点数，做唯一值会产生大量类别且图例不可读；"
                          f"请改用分级色彩（{', '.join(sorted(SEQUENTIAL))}）配 field 与 classes。")
@@ -906,7 +915,7 @@ def validate_label_spec(label, desc):
     if _is_raster(desc):
         raise ValueError("栅格图层没有属性字段，无法标注；如需注记请用 build_layout 的 title，"
                          "或先把栅格转成要素类。")
-    _check_field(label, desc, NUMERIC_FIELD_TYPES | TEXT_FIELD_TYPES, "标注")
+    _check_field(label, desc, NUMERIC_FIELD_TYPES | TEXT_FIELD_TYPES, "标注", LABELABLE_REQUIREMENT)
     size = label.get("size", 9)
     if not 6 <= size <= 24:
         raise ValueError(f"标注字号必须在 6–24 pt 之间，收到 {size}。")
@@ -1008,11 +1017,22 @@ class BuildLayoutCrossValidationTests(unittest.TestCase):
         self.assertIn("两次", str(caught.exception))
 
     def test_too_many_styles_is_refused_by_the_schema(self):
-        layers = [f"C:/d.gdb/l{i}" for i in range(13)]
-        with self.assertRaises(ValueError):
-            validate_call("build_layout", base_layout(
-                layers=layers,
-                styles=[{"layer": item, "palette": "BASE"} for item in layers]))
+        # layers 用满 12 个（合法），styles 给 13 条（非法）：这样触发的是 styles 自己的
+        # maxItems。若 layers 也给 13 个，先失败的会是 layers，这条测试就测错了约束。
+        # catalog._validate 的 label 是点路径，数组超限报 "invalid number of items"。
+        layers = [f"C:/d.gdb/l{i}" for i in range(12)]
+        styles = [{"layer": layers[index % 12], "palette": "BASE"} for index in range(13)]
+        with self.assertRaises(ValueError) as caught:
+            validate_call("build_layout", base_layout(layers=layers, styles=styles))
+        self.assertIn("build_layout.styles", str(caught.exception))
+        self.assertIn("invalid number of items", str(caught.exception))
+
+    def test_too_many_labels_is_refused_by_the_schema(self):
+        layers = [f"C:/d.gdb/l{i}" for i in range(12)]
+        labels = [{"layer": layers[index % 12], "field": "NAME"} for index in range(13)]
+        with self.assertRaises(ValueError) as caught:
+            validate_call("build_layout", base_layout(layers=layers, labels=labels))
+        self.assertIn("build_layout.labels", str(caught.exception))
 
     def test_empty_styles_and_labels_are_allowed(self):
         validate_call("build_layout", base_layout(styles=[], labels=[]))
@@ -1456,11 +1476,16 @@ class PlanStyleTests(unittest.TestCase):
         self.assertEqual(fake.cursor_calls, [])
 
     def test_sampling_is_reported_in_the_plan(self):
-        fake = FakeArcpy([(float(i),) for i in range(50)], total=50)
+        # total 必须真的超过 VALUE_CAP 才会走抽样分支：桩只给 50 行但谎报总量，
+        # collect_values 会按 stride 抽取，这正是要覆盖的路径。
+        # 若这里写成 total=50，测试会绿但抽样代码一行都没跑到。
+        fake = FakeArcpy([(float(i),) for i in range(50)], total=VALUE_CAP * 2 + 7)
         fake.cim = StubCim()
         plan = plan_style(fake, {"layer": "L", "palette": "BLUES", "field": "VALUE",
                                  "classes": 3}, "L", polygon_desc())
         self.assertTrue(plan["sampled"])
+        self.assertEqual(plan["value_count"], VALUE_CAP * 2 + 7)
+        self.assertEqual(len(plan["bounds"]), 3)
 ```
 
 注意 `FakeArcpy`（Task 2 定义）需要能挂 `cim` 属性；测试里直接赋值即可，无需改类。
@@ -1584,8 +1609,17 @@ def _simple(arcpy, prototype, plan):
 
 
 def apply_renderer(arcpy, definition, plan):
-    """按 plan 原地改 definition.renderer。SIMPLE 直接改默认符号，不新建 renderer。"""
+    """按 plan 原地改符号。SIMPLE 直接改默认符号，不新建 renderer。
+
+    RASTER_RAMP 必须在读 definition.renderer 之前就分派出去：栅格图层的 renderer 恒为
+    None（实测结论），先取 .symbol 会直接 AttributeError。分派顺序本身就是这条实测
+    约束的落地，不要为了"看起来整齐"把它挪到后面。
+    apply_raster_ramp 的实现体在 Task 6 补齐；本任务的测试不触及栅格路径。
+    """
     kind = plan["renderer"]
+    if kind == "RASTER_RAMP":
+        apply_raster_ramp(arcpy, definition, plan)
+        return
     if kind == "SIMPLE":
         _simple(arcpy, definition.renderer.symbol, plan)
         return
@@ -1786,16 +1820,9 @@ Expected: FAIL，`ImportError: cannot import name 'apply_raster_ramp'`
         return plan
 ```
 
-在 `apply_renderer` 里把 `else` 分支替换为委派：
+`apply_renderer` 的 `RASTER_RAMP` 分派分支已在 Task 5 写好（且刻意排在读 `definition.renderer` 之前），本任务只需补上它委派的实现体。
 
-```python
-    elif kind == "RASTER_RAMP":
-        apply_raster_ramp(arcpy, definition, plan)
-    else:
-        raise ValueError(f"未实现的 renderer：{kind}")
-```
-
-并在 `symbology.py` 末尾追加：
+在 `symbology.py` 末尾追加：
 
 ```python
 def apply_raster_ramp(arcpy, definition, plan):
@@ -1997,138 +2024,229 @@ git commit -m "feat: 图层标注（Arcade 表达式与字号字色）"
 
 - [ ] **Step 1: 写失败测试**
 
-在 `tests/test_cartography.py` 末尾追加。三处前置准备：
+在 `tests/test_cartography.py` 末尾追加。这个文件已有一套完整的桩体系，**必须复用而不是另造** —— 另造一套会让新测试与既有测试的约定脱节，也会让审查者无法判断哪套是真的。
 
-1. 该文件的 `TestCase` 已有 `self.root`（临时任务目录）与模块级 `base()`（最小合法 `build_layout` 参数），直接复用；本任务再加一个 `styled_base()`。
-2. `StubArcpy` 需补 `cim` 属性。`tests/` 不是可导入的包（无 `__init__.py`），**不要为此新增 `__init__.py` 改变现有测试布局** —— 把 Task 5/6/7 定义的 `CimRGBColor`、`CimClassBreaksRenderer`、`CimUniqueValueRenderer`、`CimMultipartColorRamp`、`CimTextSymbol`、`CimLabelClass` 等桩类照抄进 `test_cartography.py`，组装成一个本地 `StubCim` 后赋给 `StubArcpy.cim`。
-3. `_fill_layout` 现在会对有样式或有标注的图层调用 `layer.getDefinition("V3")` 与 `layer.setDefinition(definition)`，所以该文件里的**图层桩必须补这两个方法**，并把收到的 definition 记下来供断言：
+既有约定（照抄，不要改动它们）：
+
+- `base(**extra)`（第 22-23 行）返回最小合法参数：`{"title": "湖南县市地图", "layers": LAYERS, "output_name": "hunan_map", **extra}`。
+- `FlowTests.setUp` 建临时目录、按 `cartography.BLANK_TEMPLATE` 写一个假模板文件、置 `self.install`、清空 `StubProject.instances`。
+- `StubArcpy.__init__(self, install_dir, descs=None, project_factory=None)`，**它已经有 `self.cim = StubCim`**（不需要"补 cim 属性"）。
+- `StubMap.addDataFromPath(path)` 返回 `StubElement(Path(path).stem)`，路径记在 `StubMap.added`。
+- `StubProject.instances[0].maps[0]` 是取回桩地图的既有途径。
+
+本任务要给桩补五处能力（都是加参数或加属性，不破坏既有调用）：
+
+1. **`FakeField` 目前把类型硬编码成 `"String"`**（第 109-112 行），而分级色彩需要 Double 字段。加一个带默认值的参数，既有 `FakeField("zone_name")` 调用保持有效：
 
 ```python
-class StubLayer:                      # 若文件里已有同职责的桩，就地补这两个方法
-    def __init__(self, name):
-        self.name = name
-        self.definitions_received = []
+class FakeField:
+    def __init__(self, name, kind="String"):
+        self.name, self.type = name, kind
+        self.length = 32
+        self.isNullable, self.required, self.editable = True, False, True
+```
 
+2. **`FakeDesc` 目前把 `fields` 写死成 `[FakeField("zone_name")]`**，加一个可选参数：
+
+```python
+class FakeDesc:
+    def __init__(self, data_type="FeatureClass", shape_type="Polygon", wkid=4326, box=(0.0, 0.0, 10.0, 10.0),
+                 sr_name=None, fields=None):
+        self.dataType, self.shapeType = data_type, shape_type
+        self.spatialReference = FakeReference(wkid, sr_name)
+        self.extent = FakeBox(*box)
+        self.catalogPath = "C:/data/x"
+        self.fields = [FakeField("zone_name")] if fields is None else fields
+```
+
+3. **`StubArcpy` 需要补 `management.GetCount` 与 `da.SearchCursor`** —— `plan_style` 会读字段值算断点。加一个 `rows` 关键字参数（默认 `None`，既有调用不受影响），并把这个文件里也要用的 `FakeCursor` 抄一份进来（`tests/` 不是可导入的包，**不要为此新增 `__init__.py`**，也不要跨文件 import）：
+
+```python
+class FakeCursor:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def __enter__(self):
+        return iter(self.rows)
+
+    def __exit__(self, *exc):
+        return False
+```
+
+在 `StubArcpy.__init__` 末尾追加（`rows` 形如 `{数据集路径: [(值,), …]}`）：
+
+```python
+        self.rows = rows or {}
+
+        class _management:
+            def GetCount(inner_self, dataset):
+                return [str(len(self.rows.get(dataset, [])))]
+
+        class _da:
+            def SearchCursor(inner_self, dataset, fields):
+                return FakeCursor(self.rows.get(dataset, []))
+
+        self.management, self.da = _management(), _da()
+```
+
+签名改为 `def __init__(self, install_dir, descs=None, project_factory=None, rows=None):`。
+
+4. **`StubMap` 要把创建的图层对象留住**，测试才能检查它收到的 definition：
+
+```python
+    def __init__(self, spatial_reference=None, adds=True):
+        self.added = []
+        self.layers_added = []
+        self.spatialReference = spatial_reference or FakeReference(4326)
+        self.adds = adds
+
+    def addDataFromPath(self, path):
+        self.added.append(path)
+        layer = StubElement(Path(path).stem) if self.adds else None
+        if layer is not None:
+            self.layers_added.append(layer)
+        return layer
+```
+
+5. **`StubElement` 需要 `getDefinition` / `setDefinition`**（`_fill_layout` 现在会对有样式或有标注的图层调用它们）。它同时被 `createMapSurroundElement` 用作图廓元素桩，加这两个方法对那个用途无影响：
+
+```python
+class StubLayerDefinition:
+    def __init__(self):
+        self.renderer = StubSimpleRenderer()
+        self.labelClasses = [StubLabelClass()]
+        self.labelVisibility = False
+```
+
+`StubElement.__init__` 里加 `self.definitions_received = []`，并加：
+
+```python
     def getDefinition(self, version):
         assert version == "V3"
         return StubLayerDefinition()
 
     def setDefinition(self, definition):
         self.definitions_received.append(definition)
-
-
-class StubLayerDefinition:
-    def __init__(self):
-        self.renderer = StubSimpleRenderer()   # 持有 .symbol（CimSymbolReference 桩）
-        self.labelClasses = [StubLabelClass()]
-        self.labelVisibility = False
 ```
 
-`StubMap.addDataFromPath` 要返回这个 `StubLayer` 实例并把它留住，测试才能事后检查 `definitions_received`。
+`StubSimpleRenderer` / `StubLabelClass` 以及 `CimRGBColor`、`CimClassBreaksRenderer`、`CimUniqueValueRenderer`、`CimUniqueValueGroup`、`CimUniqueValueClass`、`CimUniqueValue`、`CimMultipartColorRamp`、`CimLinearContinuousColorRamp`、`CimTextSymbol`、`CimPolygonSymbol`、`CimSolidFill`、`CimSolidStroke`、`CimVectorMarker`、`CimSymbolReference` 这些桩类，从 Task 5/6/7 在 `tests/test_symbology.py` 里写好的定义**照抄进本文件**，挂到既有的 `StubCim` 上（`StubCim.CIMClassBreaksRenderer = CimClassBreaksRenderer` 这种赋值形式即可）。
 
-然后追加辅助函数与测试类：
-
-```python
-def styled_base(palette="BLUES", field="VALUE"):
-    """在 base() 之上挂一条样式，字段名与桩数据的字段保持一致。
-
-    classes/method 只对分级色彩有意义：唯一值路径会显式拒绝它们（见 Task 3），
-    所以按色板 kind 决定是否带上。
-    """
-    arguments = base()
-    style = {"layer": arguments["layers"][0], "palette": palette, "field": field}
-    if PALETTES[palette]["kind"] == "SEQUENTIAL":
-        style.update({"classes": 5, "method": "EQUAL_INTERVAL"})
-    arguments["styles"] = [style]
-    return arguments
-```
-
-（`PALETTES` 需在 `test_cartography.py` 顶部从 `arcgis_agent.symbology` 导入。）
+然后追加测试类：
 
 ```python
 class SymbologyWiringTests(unittest.TestCase):
+    def setUp(self):
+        self._tmp = TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        template = self.root / "pro" / cartography.BLANK_TEMPLATE
+        template.parent.mkdir(parents=True)
+        template.write_text("blank project template", encoding="utf-8")
+        self.install = self.root / "pro"
+        self.out = self.root / "run"
+        StubProject.instances = []
+        # LAYERS[0] 是符号化要用的面图层：一个 Double 字段做分级、一个类别字段、一个注记字段。
+        self.descs = {LAYERS[0]: FakeDesc(fields=[FakeField("VALUE", "Double"),
+                                                  FakeField("CATEGORY", "String"),
+                                                  FakeField("NAME", "String")])}
+        self.rows = {LAYERS[0]: [(5.0,), (18.0,), (31.0,), (44.0,), (57.0,),
+                                 (70.0,), (83.0,), (96.0,), (109.0,)]}
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def build(self, arguments, rows=None):
+        arcpy = StubArcpy(self.install, descs=self.descs,
+                          rows=self.rows if rows is None else rows)
+        return cartography._build_layout(arcpy, arguments, self.out), arcpy
+
+    def styled(self, palette="BLUES", field="VALUE"):
+        """classes/method 只对分级色彩有意义：唯一值路径会显式拒绝它们（见 Task 3）。"""
+        style = {"layer": LAYERS[0], "palette": palette, "field": field}
+        if PALETTES[palette]["kind"] == "SEQUENTIAL":
+            style.update({"classes": 5, "method": "EQUAL_INTERVAL"})
+        return base(styles=[style])
+
     def test_styles_are_planned_before_the_template_is_copied(self):
         # 前置校验不变量：被拒的样式不能留下半成品 .aprx，也不能创建 cartography 目录。
-        arguments = base()
-        arguments["styles"] = [{"layer": "C:/nope.gdb/missing", "palette": "BLUES"}]
         with self.assertRaises(ValueError):
-            cartography._build_layout(StubArcpy(), arguments, self.root)
-        self.assertFalse((self.root / "cartography").exists())
+            self.build(base(styles=[{"layer": "C:/nope.gdb/missing", "palette": "BLUES"}]))
+        self.assertFalse((self.out / "cartography").exists())
 
     def test_a_refused_style_leaves_no_staged_project_behind(self):
-        arguments = base()
-        arguments["styles"] = [{"layer": arguments["layers"][0], "palette": "ELEVATION"}]
+        # ELEVATION 是栅格色板，用在面图层上必须被拒。
         with self.assertRaises(ValueError):
-            cartography._build_layout(StubArcpy(), arguments, self.root)
-        leftovers = [p.name for p in self.root.rglob("*.aprx")]
-        self.assertEqual(leftovers, [])
+            self.build(self.styled(palette="ELEVATION"))
+        self.assertEqual([p.name for p in self.root.rglob("*.aprx")], [])
 
     def test_result_reports_the_symbology_plan(self):
-        result = cartography._build_layout(StubArcpy(), styled_base(), self.root)
-        self.assertIn("symbology", result)
+        result, _ = self.build(self.styled())
         self.assertEqual(result["symbology"][0]["palette"], "BLUES")
         self.assertEqual(result["symbology"][0]["renderer"], "CLASS_BREAKS")
         self.assertEqual(len(result["symbology"][0]["bounds"]), 5)
+        self.assertEqual(result["symbology"][0]["bounds"][-1], 109.0)
+        self.assertFalse(result["symbology"][0]["sampled"])
 
     def test_result_reports_labels(self):
-        arguments = styled_base()
-        arguments["labels"] = [{"layer": arguments["layers"][0], "field": "NAME", "size": 12}]
-        result = cartography._build_layout(StubArcpy(), arguments, self.root)
-        self.assertEqual(result["labels"], [{"layer": arguments["layers"][0],
-                                             "field": "NAME", "size": 12}])
+        arguments = self.styled()
+        arguments["labels"] = [{"layer": LAYERS[0], "field": "NAME", "size": 12}]
+        result, _ = self.build(arguments)
+        self.assertEqual(result["labels"], [{"layer": LAYERS[0], "field": "NAME", "size": 12}])
 
     def test_unmatched_land_use_values_are_surfaced(self):
-        arguments = styled_base(palette="LAND_USE", field="CATEGORY")
-        result = cartography._build_layout(StubArcpy(), arguments, self.root)
-        self.assertIn("unmatched", result["symbology"][0])
+        rows = {LAYERS[0]: [("水体",), ("其他",), ("未知类",)]}
+        result, _ = self.build(self.styled(palette="LAND_USE", field="CATEGORY"), rows=rows)
+        self.assertEqual(result["symbology"][0]["unmatched"], ["其他", "未知类"])
 
     def test_omitting_styles_keeps_the_previous_behaviour(self):
-        # 向后兼容：不传 styles/labels 时返回结构除新增键外与改动前一致。
-        result = cartography._build_layout(StubArcpy(), base(), self.root)
+        # 向后兼容：不传 styles/labels 时除新增的两个空键外，返回结构与改动前一致。
+        result, _ = self.build(base())
         self.assertEqual(result["symbology"], [])
         self.assertEqual(result["labels"], [])
         self.assertEqual(result["page_size"], "A4")
+        self.assertEqual(result["elements"], ["图例", "指北针", "比例尺"])
         self.assertIn("next_step", result)
 
-    def test_title_color_is_written_through_values_not_keywords(self):
-        # 既有缺陷回归测试：red=/green=/blue= 会被静默忽略，黑色只是碰巧等于默认值。
-        recorded = []
-        arcpy_stub = StubArcpy()
-        arcpy_stub.cim.CIMRGBColor = lambda: recorded.append("constructed") or CimRGBColor()
-        cartography._build_layout(arcpy_stub, base(), self.root)
-        self.assertTrue(recorded)
-```
-
-再往 `SymbologyWiringTests` 里补三项，验证符号化与标注真的落到了图层定义上。**断言桩图层收到的 definition，而不是断言调用序列** —— `cartography.py` 用 `from .symbology import …` 直接绑定了函数名，monkeypatch `symbology` 的模块属性对它没有任何作用：
-
-```python
     def test_definition_reaches_the_layer_with_a_class_breaks_renderer(self):
-        stub = StubArcpy()
-        cartography._build_layout(stub, styled_base(), self.root)
-        layer = stub.last_map.layers_added[0]
+        self.build(self.styled())
+        layer = StubProject.instances[0].maps[0].layers_added[0]
         self.assertEqual(len(layer.definitions_received), 1)
         definition = layer.definitions_received[0]
         self.assertEqual(type(definition.renderer).__name__, "CimClassBreaksRenderer")
         self.assertEqual(len(definition.renderer.breaks), 5)
 
     def test_definition_reaches_the_layer_with_labels_turned_on(self):
-        arguments = styled_base()
-        arguments["labels"] = [{"layer": arguments["layers"][0], "field": "NAME", "size": 12}]
-        stub = StubArcpy()
-        cartography._build_layout(stub, arguments, self.root)
-        definition = stub.last_map.layers_added[0].definitions_received[0]
+        arguments = self.styled()
+        arguments["labels"] = [{"layer": LAYERS[0], "field": "NAME", "size": 12}]
+        self.build(arguments)
+        definition = StubProject.instances[0].maps[0].layers_added[0].definitions_received[0]
         self.assertTrue(definition.labelVisibility)
         self.assertEqual(definition.labelClasses[0].expression, "$feature.NAME")
         self.assertEqual(definition.labelClasses[0].textSymbol.symbol.fontSize, 12)
 
     def test_unstyled_layers_are_never_round_tripped_through_cim(self):
         # 不带 styles/labels 时完全不碰 getDefinition，保持改动前的行为与开销。
-        stub = StubArcpy()
-        cartography._build_layout(stub, base(), self.root)
-        self.assertEqual(stub.last_map.layers_added[0].definitions_received, [])
+        self.build(base())
+        for layer in StubProject.instances[0].maps[0].layers_added:
+            self.assertEqual(layer.definitions_received, [])
+
+    def test_title_color_goes_through_values_not_keywords(self):
+        # 既有缺陷回归：red=/green=/blue= 会被静默忽略，黑色只是 values 未设置时的默认值。
+        # 用子类替换而不是改 StubCim 本身 —— 改共享类会污染同批其他测试。
+        made = []
+        original = StubCim.CIMRGBColor
+
+        class TracingColor(original):
+            def __init__(self):
+                made.append(self)
+
+        arcpy = StubArcpy(self.install, descs=self.descs, rows=self.rows)
+        arcpy.cim = type("TracingCim", (StubCim,), {"CIMRGBColor": TracingColor})
+        cartography._build_layout(arcpy, base(), self.root / "run-title")
+        self.assertTrue(made, "图名必须构造 CIMRGBColor")
+        self.assertEqual(made[-1].values, [0, 0, 0, 100])
 ```
 
-`StubArcpy` 需暴露 `last_map`（最近一次 `listMaps()[0]` 返回的桩地图），桩地图需把 `addDataFromPath` 创建的图层留在 `layers_added` 列表里。若该文件的桩已有等价能力，直接复用，不要重复造。
+（`PALETTES` 需在 `test_cartography.py` 顶部从 `arcgis_agent.symbology` 导入。`TracingColor.__init__` 不接受关键字参数，所以一旦实现退回 `CIMRGBColor(red=…, green=…)` 的写法，这条测试会直接 TypeError 报错，而不是安静地通过。）
 
 - [ ] **Step 2: 运行测试确认失败**
 
