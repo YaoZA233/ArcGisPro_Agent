@@ -1,3 +1,4 @@
+import io
 import unittest
 
 from arcgis_agent.mdrender import render_markdown, supports_color, _display_width
@@ -85,8 +86,9 @@ class MarkdownRenderTests(unittest.TestCase):
         self.assertIn("123", render_markdown(123, color=False, width=40))
 
     def test_supports_color_is_false_without_tty(self):
-        # Under the offline test runner stdout is not a TTY.
-        self.assertFalse(supports_color())
+        # Use an explicit non-TTY stream so this remains deterministic when the
+        # test process itself is launched from an interactive PowerShell console.
+        self.assertFalse(supports_color(io.StringIO()))
 
 
 if __name__ == "__main__":

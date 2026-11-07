@@ -43,6 +43,7 @@ public partial class AgentView : UserControl
     private bool approvalWrites, approvalSent;
     private readonly HashSet<string> handledHostRequests = new();
     private long turnGeneration;
+    private UpdateInfo? availableUpdate;
 
     public AgentView()
     {
@@ -61,7 +62,11 @@ public partial class AgentView : UserControl
         if (!string.IsNullOrWhiteSpace(configured)) return configured;
         string location = Path.GetDirectoryName(typeof(AgentView).Assembly.Location)!;
         string marker = Path.Combine(location, "agent-home.txt");
-        if (File.Exists(marker)) return File.ReadAllText(marker, Encoding.UTF8).Trim();
+        if (File.Exists(marker))
+        {
+            string root = File.ReadAllText(marker, Encoding.UTF8).Trim();
+            if (root.Length > 0) return Path.GetFullPath(Path.IsPathRooted(root) ? root : Path.Combine(location, root));
+        }
         throw new InvalidOperationException("找不到工程路径。请设置 ARCGIS_AGENT_HOME 后重新打开面板。");
     }
 
@@ -107,8 +112,31 @@ public partial class AgentView : UserControl
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
         LoadAppearance();
+        _ = CheckForUpdatesAsync();
         try { await EnsureWorkerAsync(); }
         catch (Exception ex) { Notice(ex.Message); StatusText.Text = "等待配置或重连"; StopWorker(); }
+    }
+
+    private async Task CheckForUpdatesAsync()
+    {
+        UpdateInfo? update = await UpdateService.CheckAsync();
+        if (update is null || !IsLoaded) return;
+        availableUpdate = update;
+        UpdateButton.Content = "更新 " + update.Version;
+        UpdateButton.ToolTip = update.Notes.Length > 0 ? update.Notes : "查看 ArcGIS Agent " + update.Version;
+        UpdateButton.Visibility = Visibility.Visible;
+        Notice("发现 ArcGIS Agent 新版本 " + update.Version + "。点击顶部按钮查看更新说明。");
+    }
+
+    private void Update_Click(object sender, RoutedEventArgs e)
+    {
+        if (availableUpdate is null) return;
+        try
+        {
+            UpdateService.Open(availableUpdate);
+            Notice("已打开版本 " + availableUpdate.Version + " 的发布页面。请关闭 ArcGIS Pro 后安装更新，再重新打开 Pro。");
+        }
+        catch (Exception ex) { Notice("无法打开更新页面：" + ex.Message); }
     }
 
     private async Task EnsureWorkerAsync()

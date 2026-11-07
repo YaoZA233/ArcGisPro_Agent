@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ArcGIS defaultAssembly="ArcGISAgent.dll" defaultNamespace="ArcGISAgent" xmlns="http://schemas.esri.com/DADF/Registry">
-  <AddInInfo id="{B95FF322-9FEA-41EF-BB5F-870AA49B91EE}" version="1.0" desktopVersion="3.5.0">
+  <AddInInfo id="{B95FF322-9FEA-41EF-BB5F-870AA49B91EE}" version="0.1.0" desktopVersion="3.5.0">
     <Name>ArcGIS Agent</Name>
     <Description>DeepSeek GIS assistant for ArcGIS Pro.</Description>
     <Author>ArcGIS Agent</Author>

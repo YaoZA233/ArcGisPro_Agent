@@ -2,7 +2,7 @@
 
 [简体中文](README.md) | **English**
 
-A local GIS agent for **ArcGIS Pro 3.5.2 on Windows**. Current version: `0.1.0`.
+A local GIS agent for **ArcGIS Pro 3.5.2 on Windows**. The current version is in [`VERSION`](VERSION).
 
 ![license](https://img.shields.io/badge/license-MIT-green) ![python](https://img.shields.io/badge/python-3.11%20%7C%203.14-blue) ![ArcGIS%20Pro](https://img.shields.io/badge/ArcGIS%20Pro-3.5.2-orange)
 
@@ -28,6 +28,10 @@ Drive ArcGIS Pro in natural language to inspect data, run vector and raster anal
 | [Current limits and roadmap](#current-limits-and-roadmap) | Known boundaries |
 
 Every feature and fix batch is recorded with its concrete changes, affected modules, verification and remaining limitations in [CHANGELOG.md](CHANGELOG.md) (Chinese).
+
+### Updates
+
+When the ArcGIS Pro pane opens, it checks `update.json` in the background. Network or manifest failures do not affect normal use. When a newer version is available, the pane shows an update button and opens the GitHub Release page. Close ArcGIS Pro before installing a downloaded source ZIP or `.esriAddInX`; keep `config/local.toml`, `.env.local`, and `workspace`. The current release does not replace Python files or locked add-in DLLs while Pro is running.
 
 ## Quick start
 

@@ -1,5 +1,21 @@
 # 更新日志
 
+## 2026-11-07：修复 Windows 发布验证
+
+- 修复更新服务缺少 `System.IO` 引用导致 ArcGIS Pro 插件 Release 构建失败的问题。
+- 修复 Markdown 颜色测试依赖运行器是否附着 TTY 的不稳定断言，改为显式验证非 TTY 流。
+- 影响模块：`addin/ArcGISAgent/UpdateService.cs`、`tests/test_mdrender.py`。
+- 验证：待在 Windows + ArcGIS Pro 环境运行 `scripts/test.ps1` 和 `scripts/build-addin.ps1`。
+
+## 2026-11-07：GitHub Release 更新检查
+
+- 新增 `VERSION` 作为 Python 核心的版本来源，并让核心包在不导入 ArcPy 的情况下读取它。
+- 新增 `update.json` 发布清单和 ArcGIS Pro 面板后台更新检查；发现新版本时显示版本按钮并打开 GitHub Release 页面。
+- 更新检查使用 4 秒超时、忽略网络/清单错误，不上传密钥、工程路径或 GIS 数据；当前不会在 ArcGIS Pro 运行期间覆盖文件。
+- 影响模块：`VERSION`、`update.json`、`src/arcgis_agent/__init__.py`、`addin/ArcGISAgent/UpdateService.cs`、`AgentView.xaml`、`AgentView.xaml.cs`、`scripts/build-addin.ps1`、`README.md`。
+- 验证：`PYTHONPATH=src python3 -m unittest discover -s tests` 为 469/470 通过；剩余 1 项是当前 Linux 主机上既有的 Windows `D:/gis` 路径断言。当前环境没有 PowerShell/Windows ArcGIS Pro，因此未运行 `./scripts/test.ps1`、`./scripts/build-addin.ps1`，也未在 Pro 内安装验证更新按钮或 GitHub 远端发布包。
+- 限制：尚未实现自动下载、SHA256 校验、安装和回滚；离线测试在当前 Linux 主机仍有 1 项既有 Windows `D:/gis` 路径断言失败。
+
 ## 2026-11-07：工具授权模式
 
 - 新增两种工具授权模式：`ask`（默认，逐次询问）与 `full`（完全访问，自动允许工具调用并自动授予写入能力）。完全访问模式仍经过工具白名单、参数校验、唯一任务目录、禁止覆盖和完整审计事件。

@@ -2,7 +2,7 @@
 
 [**简体中文**](README.md) | [English](README.en.md)
 
-面向 **ArcGIS Pro 3.5.2 / Windows** 的本地 GIS Agent。当前版本 `0.1.0`。
+面向 **ArcGIS Pro 3.5.2 / Windows** 的本地 GIS Agent。当前版本见仓库根目录 [`VERSION`](VERSION)。
 
 ![license](https://img.shields.io/badge/license-MIT-green) ![python](https://img.shields.io/badge/python-3.11%20%7C%203.14-blue) ![ArcGIS%20Pro](https://img.shields.io/badge/ArcGIS%20Pro-3.5.2-orange)
 
@@ -28,6 +28,12 @@
 | [当前边界与后续](#当前边界与后续) | 已知限制 |
 
 每批功能与修复的具体改动、验证和限制记录在 [CHANGELOG.md](CHANGELOG.md)。
+
+### 更新机制
+
+面板打开后会在后台检查仓库根目录的 [`update.json`](update.json)，网络不可用时不影响正常使用。发现新版本后，顶部会显示版本按钮并打开 GitHub Release 页面；请关闭 ArcGIS Pro 后下载源码 ZIP 或 `.esriAddInX`，再保留本机的 `config/local.toml`、`.env.local` 和 `workspace`。当前版本不会在 Pro 运行期间自动覆盖 Python 源码或插件 DLL。
+
+发布新版本时请同步更新 `VERSION`、`CHANGELOG.md` 和 `update.json`，并在 GitHub 创建同名版本标签（例如 `v0.2.0`）。
 
 ## 快速开始
 
