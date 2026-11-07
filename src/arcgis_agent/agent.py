@@ -61,7 +61,10 @@ class Agent:
     def run(self, planner: Planner, *, allow_writes: bool = False,
             on_event: Callable[[dict], None] | None = None,
             cancel_event: threading.Event | None = None,
-            approve: Callable[[dict], dict] | None = None) -> dict:
+            approve: Callable[[dict], dict] | None = None,
+            approval_mode: str = "ask") -> dict:
+        from .approvals import full_access_approval, validate_approval_mode
+        validate_approval_mode(approval_mode)
         run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ_") + uuid.uuid4().hex[:12]
         run_dir = self.workspace / "runs" / run_id
         run_dir.mkdir(parents=True, exist_ok=False)
@@ -75,7 +78,7 @@ class Agent:
             if on_event:
                 on_event(copy.deepcopy(record))
 
-        event("started", {"allow_writes": allow_writes})
+        event("started", {"allow_writes": allow_writes, "approval_mode": approval_mode})
         try:
             recovers = getattr(planner, "recovers", False)
             consecutive_failures = 0
@@ -100,7 +103,8 @@ class Agent:
                 if cancel_event and cancel_event.is_set():
                     summary["status"] = "cancelled"
                     break
-                event("tool_requested", {"tool": action.tool, "arguments": action.arguments, "step": index + 1})
+                event("tool_requested", {"tool": action.tool, "arguments": action.arguments,
+                                          "step": index + 1, "approval_mode": approval_mode})
                 request = {"request_id": uuid.uuid4().hex, "run_id": run_id, "step": index + 1,
                            "tool": action.tool, "arguments": copy.deepcopy(action.arguments),
                            **approval_details(action.tool, action.arguments, run_dir / "outputs")}
@@ -111,11 +115,12 @@ class Agent:
                         request["selection"] = copy.deepcopy(context)
                 request["digest"] = hashlib.sha256(json.dumps(request, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
                 event("approval_requested", request)
-                if approve is None:
+                handler = full_access_approval if approval_mode == "full" else approve
+                if handler is None:
                     summary["status"] = "approval_required"
                     summary["error"] = "每次工具调用必须由用户单独授权；当前入口未提供授权处理器。"
                     break
-                decision = approve(copy.deepcopy(request))
+                decision = handler(copy.deepcopy(request))
                 if not isinstance(decision, dict) or decision.get("decision") not in ("allow", "deny", "cancel", "expired") or type(decision.get("allow_writes", False)) is not bool:
                     raise ValueError("Invalid approval decision; operation was not executed")
                 choice = decision["decision"]
@@ -126,7 +131,7 @@ class Agent:
                 if choice != "allow":
                     summary["status"] = {"deny": "denied", "cancel": "cancelled", "expired": "approval_expired"}[choice]
                     break
-                if TOOLS[action.tool].writes and not (allow_writes or decision.get("allow_writes", False)):
+                if TOOLS[action.tool].writes and not (allow_writes or approval_mode == "full" or decision.get("allow_writes", False)):
                     summary["status"] = "blocked"
                     summary["error"] = "Write tool requires an explicit single-operation write grant or --allow-writes; per-tool approval is always required"
                     break

@@ -6,7 +6,7 @@ A local GIS agent for **ArcGIS Pro 3.5.2 on Windows**. Current version: `0.1.0`.
 
 ![license](https://img.shields.io/badge/license-MIT-green) ![python](https://img.shields.io/badge/python-3.11%20%7C%203.14-blue) ![ArcGIS%20Pro](https://img.shields.io/badge/ArcGIS%20Pro-3.5.2-orange)
 
-Drive ArcGIS Pro in natural language to inspect data, run vector and raster analysis, and produce layouts. The model only plans; **every tool call, including read-only ones, is confirmed by you first and executed only after approval**. Results land in a task directory with a unique ID, so each run is auditable end to end. Two entry points — a command line and a docked pane inside ArcGIS Pro — share one agent, one connection configuration, one tool set and one task record.
+Drive ArcGIS Pro in natural language to inspect data, run vector and raster analysis, and produce layouts. The default `ask` mode confirms every tool call, including read-only ones; opt-in `full` mode allows calls automatically while retaining the same tool, path and overwrite safeguards. Results land in a task directory with a unique ID, so each run is auditable end to end. Two entry points — a command line and a docked pane inside ArcGIS Pro — share one agent, one connection configuration, one tool set and one task record.
 
 - Providers: DeepSeek, Qwen, Kimi, GLM, OpenAI GPT, Anthropic Claude, xAI Grok, plus any OpenAI-compatible endpoint or relay. The original DeepSeek configuration keeps working.
 - **62 structured tools** and **7 multi-step skill packs**, with fully typed argument validation.
@@ -48,6 +48,7 @@ Other entry points:
 
 ```powershell
 .\scripts\agent.ps1 chat --allow-writes   # pre-enable write capability; each step still asks
+.\scripts\agent.ps1 chat --approval-mode full  # automatically allow tool calls
 .\scripts\agent.ps1 demo                  # offline simulation: exercises scheduling and logs, writes no GIS data
 .\scripts\agent.ps1 tools                 # list tools and their arguments
 .\scripts\agent.ps1 skills                # list multi-step skill packs
@@ -154,7 +155,7 @@ Copy `examples/inspect_project.json` or `examples/buffer.json` and replace the s
 .\scripts\agent.ps1 run examples\buffer.json --mock --allow-writes
 ```
 
-The CLI prints `[等待本次授权]` ("waiting for this approval") at every step: `y` allows, `n` denies, `c` cancels, and pressing Enter alone denies. Neither `--allow-writes` nor `--mock` skips the per-step prompt. A denial stops later steps of that task while keeping everything already produced. The Python toolbox uses a Windows confirmation dialog with the same semantics; a programmatic call with no approval handler returns `approval_required` and executes nothing.
+In `ask` mode the CLI prints `[等待本次授权]` ("waiting for this approval") at every step: `y` allows, `n` denies, `c` cancels, and pressing Enter alone denies. `--approval-mode full` or `[agent] approval_mode = "full"` allows calls automatically and enables writes; tool validation, unique task directories, overwrite refusal and audit logging still apply. A denial stops later steps of that task while keeping everything already produced. The Python toolbox and Pro pane use the configured or selected mode; a programmatic call with no approval handler in `ask` mode returns `approval_required` and executes nothing.
 
 Each task automatically creates:
 
@@ -187,6 +188,7 @@ Relative paths inside a config file resolve against that file's directory. The C
 | --- | --- | --- |
 | `max_steps` | `16` | Exact integer `1..100`; tool-call ceiling per task, including probes and corrective calls, not the number of model requests |
 | `failure_budget` | `3` | Exact integer `1..20`; consecutive tool-failure ceiling for recovering planners, not additional retries |
+| `approval_mode` | `"ask"` | `"ask"` prompts per call; `"full"` allows calls automatically and enables writes |
 
 Booleans, floats and strings are not accepted as integers. `Agent`, `Settings` and `ChatSession` all default to `max_steps=16`. The configured default ceiling for the CLI / toolbox also rises from 8 to 16; explicit values still apply, and static plans still fail fast. One successful tool call resets the consecutive-failure count. Budget 3 means the first failure plus at most two unsuccessful corrective attempts before the third consecutive failure stops the task (budget 1 stops at the first failure). Intervening success can reset that budget, but all actual tool calls remain bounded by the total step ceiling. A further model request may still be made after tool steps are exhausted to obtain a final answer or determine `step_limit`.
 

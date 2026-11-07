@@ -304,6 +304,7 @@ public partial class AgentView : UserControl
         MaxTokensCombo.Text = Text(state, "max_tokens");
         foreach (ComboBoxItem item in ThinkingCombo.Items) if (item.Tag?.ToString() == Text(state, "thinking")) ThinkingCombo.SelectedItem = item;
         foreach (ComboBoxItem item in ImageDetailCombo.Items) if (item.Tag?.ToString() == Text(state, "image_detail")) ImageDetailCombo.SelectedItem = item;
+        foreach (ComboBoxItem item in AccessModeCombo.Items) if (item.Tag?.ToString() == Text(state, "approval_mode")) AccessModeCombo.SelectedItem = item;
         ActualModelText.Text = activeProvider + " / " + ModelCombo.Text + " · 思考 " + Text(state, "thinking");
         if (state.TryGetProperty("models", out var models))
         {
@@ -437,7 +438,7 @@ public partial class AgentView : UserControl
         {
             var envelope = await RequestAsync(new { type = "send", message = prompt, options,
                 attachments = attachments.ToArray(), context = ProContext.ProjectPath(), allow_writes = AllowWrites.IsChecked == true,
-                host_tools = ProContext.SupportsHostTools }, "result", 7200);
+                approval_mode = SelectedTag(AccessModeCombo), host_tools = ProContext.SupportsHostTools }, "result", 7200);
             var result = envelope.GetProperty("result");
             CompleteAssistant(result);
             if (Text(result, "status") == "completed") { attachments.Clear(); RenderAttachments(); }
@@ -472,7 +473,7 @@ public partial class AgentView : UserControl
         SettingsContent.IsEnabled = !value;
         SendButton.Content = value ? "停止" : "发送";
         ActivityBar.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
-        foreach (var control in new Control[] { NewButton, HistoryButton, ApplySettingsButton, RefreshModelsButton, AttachButton, ModelCombo, MaxTokensCombo, ImageDetailCombo }) control.IsEnabled = !value;
+        foreach (var control in new Control[] { NewButton, HistoryButton, ApplySettingsButton, RefreshModelsButton, AttachButton, ModelCombo, MaxTokensCombo, ImageDetailCombo, AccessModeCombo }) control.IsEnabled = !value;
         AllowWrites.IsEnabled = !value;
     }
 

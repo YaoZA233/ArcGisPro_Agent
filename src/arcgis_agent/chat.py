@@ -159,7 +159,8 @@ class ChatSession:
         temp.replace(path)
 
     def send(self, prompt: str, *, allow_writes: bool = False, on_event: Callable[[dict], None] | None = None,
-             options: dict | None = None, attachments: list[str] | None = None, context: str = "", approve: Callable[[dict], dict] | None = None) -> dict:
+             options: dict | None = None, attachments: list[str] | None = None, context: str = "",
+             approve: Callable[[dict], dict] | None = None, approval_mode: str = "ask") -> dict:
         if not isinstance(prompt, str) or not prompt.strip():
             raise ValueError("请输入任务内容。")
         if len(prompt) > 16000:
@@ -227,7 +228,8 @@ class ChatSession:
                 self.runtime.cancel_event = self.client.cancel_event
         try:
             result = Agent(self.runtime, self.workspace, self.max_steps, self.failure_budget).run(planner, allow_writes=allow_writes,
-                on_event=emit, cancel_event=getattr(self.client, "cancel_event", None), approve=approve)
+                on_event=emit, cancel_event=getattr(self.client, "cancel_event", None), approve=approve,
+                approval_mode=approval_mode)
         finally:
             if real_client:
                 self.client.on_event = None

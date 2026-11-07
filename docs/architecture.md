@@ -49,7 +49,7 @@ ArcPyRuntime       InProcessRuntime       MockRuntime
 
 先在 `catalog.TOOLS` 声明类型化参数、必需项、写入属性、影响与宿主需求，再在 `validate_call` 增加业务约束，最后实现 ArcPy 或 SDK 调用。同一 schema 用于模型声明、CLI 查询、执行前校验和授权预览。创建数据或修改地图的工具必须标记 `writes=True`；数据输出由任务目录生成，关闭覆盖，栅格成果标记 `raster_output=True`，授权预览据此显示 TIFF 路径。需要扩展许可的分析工具在执行前经 `gis_tools.require_extension` 签出，签出失败直接报错。不要绕过统一入口增加任意代码或 shell 执行能力。技能包（`skills.py`）同样受此约束：它是只读方法模板，加载时对照 `catalog.TOOLS` 校验每个步骤的工具名、参数键与字面量取值，模型仍须逐个发起受授权的工具调用，绝不能成为执行任意代码或绕过授权的后门。
 
-Agent 冻结每步参数，生成独立 request_id 和 digest；授权预览、副作用与实际执行使用同一份参数。授权事件为 `tool_requested → approval_requested → approval_decided → tool_executing → tool_result`。无 `approve` 回调不调用 runtime。每次纠正动作（含只读探查）也需要新的逐次授权；写操作还须具备调用方显式启用的全局写入能力或本次单次写入许可，二者满足其一即可。单次写入许可不会扩散到下一步，全局写入能力也不代替逐次授权。
+Agent 冻结每步参数，生成独立 request_id 和 digest；授权预览、副作用与实际执行使用同一份参数。授权事件为 `tool_requested → approval_requested → approval_decided → tool_executing → tool_result`。默认 `approval_mode=ask` 且无 `approve` 回调不调用 runtime；`approval_mode=full` 使用内置自动授权回调，但仍写入相同审计事件。每次纠正动作（含只读探查）也需要新的逐次授权；写操作还须具备调用方显式启用的全局写入能力或本次单次写入许可，二者满足其一即可。单次写入许可不会扩散到下一步，全局写入能力也不代替逐次授权。
 
 工具返回 JSON 可序列化数据。真实 GIS 操作出错由 runtime 转换为 `ok=False` 时，Agent 记录完整失败观察，仅对可纠错规划器允许后续重新决策。拒绝、取消、授权过期、写入未授权、缺少授权处理器和执行循环内异常（包括 runtime 抛出的异常）均立即终止，不进入纠错；工具结果中的 `error.type="Cancelled"` 即使没有取消事件也终止为 `cancelled`。一次工具成功不代表整个 GIS 分析已经经过业务验收；纠错不提供事务回滚、自动删除或覆盖，部分成果可能保留，新数据输出仍限唯一任务目录。
 

@@ -15,7 +15,7 @@ from .mdrender import render_markdown, supports_color, terminal_width
 from .memory import MemoryStore
 from .runtime import ArcPyRuntime, HostBridgeRuntime
 from .tools import TOOLS
-from .approvals import RequestBroker, terminal_approval
+from .approvals import RequestBroker, terminal_approval, validate_approval_mode
 from .selections import SelectionStore
 from .providers import PRESETS, REASONING, ProviderStore, preset_profile, save_key
 
@@ -151,7 +151,7 @@ class TerminalTurn:
             self.generating = False
             self.step_start = time.monotonic()
             self._heading(f"工具 · 步骤 {record.get('step', '?')} · {record.get('tool', '')}")
-            print("等待本次授权。", flush=True)
+            print("自动授权模式：本次调用将直接执行。" if record.get("approval_mode") == "full" else "等待本次授权。", flush=True)
         elif kind == "tool_progress":
             self._reasoning()
             print("  运行日志：" + str(record.get("text", "")), flush=True)
@@ -185,7 +185,8 @@ class TerminalTurn:
         print("任务目录：" + str(result.get("run_dir", "")), flush=True)
 
 
-def interactive(settings: Settings, allow_writes: bool) -> int:
+def interactive(settings: Settings, allow_writes: bool, approval_mode: str | None = None) -> int:
+    mode = validate_approval_mode(approval_mode or settings.approval_mode)
     session = create_session(settings)
     # Never let a GBK/ASCII console codec crash the reply; degrade to '?' instead.
     if hasattr(sys.stdout, "reconfigure"):
@@ -196,7 +197,9 @@ def interactive(settings: Settings, allow_writes: bool) -> int:
     color = supports_color()
     width = terminal_width()
     print(f"ArcGIS Agent · {session.providers.active} / {session.client.model} | 输入 /new 新对话，/chats 历史会话，/quit 退出。")
-    print("每次工具调用均需单独确认；写入可在本次提示中授权。" + (" 已预先启用写入能力。" if allow_writes else ""))
+    print(("完全访问模式：工具调用自动允许，写入能力已启用。" if mode == "full" else
+           "询问模式：每次工具调用均需单独确认；写入可在本次提示中授权。") +
+          (" 已预先启用写入能力。" if allow_writes and mode == "ask" else ""))
     print("/model 名称 切换模型；/think off|low|high|max；/attach 路径 附加文件；/status 查看设置")
     print("/providers 列出连接；/provider 连接ID 切换；/models 获取账户模型列表")
     print("/resume 编号 恢复历史会话；/memory 查看长期记忆；/forget 序号 删除记忆")
@@ -294,7 +297,7 @@ def interactive(settings: Settings, allow_writes: bool) -> int:
         session.client.cancel_event.clear()
         try:
             result = session.send(prompt, allow_writes=allow_writes, on_event=display.event,
-                                  attachments=attachments, approve=terminal_approval)
+                                  attachments=attachments, approve=terminal_approval, approval_mode=mode)
         except (ValueError, OSError, DeepSeekError) as exc:
             display.fail(str(exc))
             continue
@@ -323,7 +326,8 @@ def rpc(settings: Settings) -> int:
         client = session.client
         return {"model": getattr(client, "model", settings.model), "thinking": getattr(client, "thinking", settings.thinking),
                 "max_tokens": getattr(client, "max_tokens", settings.max_tokens), "models": [getattr(client, "model", settings.model)],
-                "image_detail": getattr(client, "image_detail", "auto"), "workspace": str(settings.workspace), "session_id": session.session_id,
+                "image_detail": getattr(client, "image_detail", "auto"), "workspace": str(settings.workspace),
+                "session_id": session.session_id, "approval_mode": settings.approval_mode,
                 **provider_state(session)}
 
     active: threading.Thread | None = None
@@ -343,12 +347,14 @@ def rpc(settings: Settings) -> int:
             host_enabled = request.get("host_tools", False)
             if type(host_enabled) is not bool:
                 raise ValueError("host_tools 必须为布尔值。")
+            mode = validate_approval_mode(request.get("approval_mode", settings.approval_mode))
             if hasattr(session.client, "available_tools"):
                 session.client.available_tools = {name for name, tool in TOOLS.items() if host_enabled or not tool.host}
             session.runtime = HostBridgeRuntime(base_runtime, broker, host_enabled, selections)
             result = session.send(request.get("message"), allow_writes=writes,
                 options=request.get("options"), attachments=request.get("attachments"), context=request.get("context", ""),
                 approve=lambda proposal: broker.request("approval", proposal),
+                approval_mode=mode,
                 on_event=lambda event: emit({"type": "event", "event": event}) if event["event"] != "approval_requested" else None)
             emit({"type": "result", "result": result})
         except Exception as exc:

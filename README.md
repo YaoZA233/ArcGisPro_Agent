@@ -51,6 +51,7 @@ CLI 将模型思考、工具确认与结果、最终答复和 token 用量分区
 
 ```powershell
 .\scripts\agent.ps1 chat --allow-writes   # 预先启用写入能力；每一步仍会询问
+.\scripts\agent.ps1 chat --approval-mode full  # 完全访问模式：自动允许工具调用
 .\scripts\agent.ps1 demo                  # 离线模拟：验证调度、日志，不生成 GIS 数据
 .\scripts\agent.ps1 tools                 # 查看工具及其参数
 .\scripts\agent.ps1 skills                # 查看多步任务技能包
@@ -157,7 +158,7 @@ python -m unittest discover -s tests -v
 .\scripts\agent.ps1 run examples\buffer.json --mock --allow-writes
 ```
 
-CLI 在每一步显示 `[等待本次授权]`：输入 `y` 允许、`n` 拒绝、`c` 取消，直接回车默认拒绝。`--allow-writes` 和 `--mock` 都不跳过单步询问。拒绝后停止该任务的后续步骤，保留此前已经生成的成果。Python 工具箱使用同样语义的 Windows 确认框；无授权处理器的程序调用返回 `approval_required`，不执行工具。
+CLI 在询问模式的每一步显示 `[等待本次授权]`：输入 `y` 允许、`n` 拒绝、`c` 取消，直接回车默认拒绝。`--allow-writes` 和 `--mock` 都不改变询问模式；`--approval-mode full` 或 `[agent] approval_mode = "full"` 会自动允许工具调用并启用写入能力。完全访问模式仍记录授权决定，并继续执行工具白名单、参数校验、唯一任务目录和禁止覆盖检查。拒绝后停止该任务的后续步骤，保留此前已经生成的成果。Python 工具箱使用配置中的模式；无授权处理器的询问模式程序调用返回 `approval_required`，不执行工具。
 
 每次任务自动创建：
 
@@ -190,8 +191,9 @@ workspace/runs/<UTC时间_唯一ID>/
 | --- | --- | --- |
 | `max_steps` | `16` | 精确整数 `1..100`；每次任务的工具调用上限，含探查与纠正调用，不是模型请求次数 |
 | `failure_budget` | `3` | 精确整数 `1..20`；可纠错规划器的连续工具失败上限，不是额外重试次数 |
+| `approval_mode` | `"ask"` | `"ask"` 逐次询问；`"full"` 自动允许工具调用并自动启用写入能力 |
 
-布尔、浮点和字符串不作为整数接受。`Agent`、`Settings`、`ChatSession` 的 `max_steps` 默认均为 16；CLI / 工具箱通过配置使用的默认上限也由 8 提高为 16，显式配置值仍生效，静态计划失败即停不变。一次工具成功会清零连续失败计数；默认预算 3 表示首次失败加至多两次未成功的纠正尝试，第三次连续失败即停（预算 1 则首次失败即停）。中间成功可重置预算，但所有实际工具调用始终受总步数限制。为获取最终答复或判定 `step_limit`，工具步数耗尽后仍可能再请求一次模型。
+布尔、浮点和字符串不作为整数接受。`approval_mode` 只接受 `ask` 或 `full`，默认 `ask`；CLI `chat`/`run` 还可用 `--approval-mode` 覆盖配置。`Agent`、`Settings`、`ChatSession` 的 `max_steps` 默认均为 16；CLI / 工具箱通过配置使用的默认上限也由 8 提高为 16，显式配置值仍生效，静态计划失败即停不变。一次工具成功会清零连续失败计数；默认预算 3 表示首次失败加至多两次未成功的纠正尝试，第三次连续失败即停（预算 1 则首次失败即停）。中间成功可重置预算，但所有实际工具调用始终受总步数限制。为获取最终答复或判定 `step_limit`，工具步数耗尽后仍可能再请求一次模型。
 
 `[agent] data_roots` 配置 Agent 可自主搜索的数据根目录（最多 16 个）：用户没给路径时，模型会用 `find_datasets` 在这些目录内按关键词递归查找数据（含 `.gdb`/`.gpkg` 内部成员），而不是反问路径；把你常用的 GIS 数据目录加进去即可。未配置时 `find_datasets` 返回明确提示，Agent 会退回向用户询问位置。
 

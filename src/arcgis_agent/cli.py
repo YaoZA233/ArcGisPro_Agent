@@ -36,11 +36,13 @@ def main(argv: list[str] | None = None) -> int:
         item.add_argument("provider")
     chat = commands.add_parser("chat", help="Interactive multi-provider GIS assistant")
     chat.add_argument("--allow-writes", action="store_true")
+    chat.add_argument("--approval-mode", choices=("ask", "full"), help="Tool authorization: ask (default) or full (automatic)")
     commands.add_parser("rpc", help=argparse.SUPPRESS)
     run = commands.add_parser("run", help="Execute a versioned JSON plan; no natural-language model yet")
     run.add_argument("plan", type=Path)
     run.add_argument("--mock", action="store_true")
     run.add_argument("--allow-writes", action="store_true")
+    run.add_argument("--approval-mode", choices=("ask", "full"), help="Tool authorization: ask (default) or full (automatic)")
     args = parser.parse_args(argv)
     try:
         local_config = Path(__file__).resolve().parents[2] / "config" / "local.toml"
@@ -67,7 +69,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.command == "setup-key":
                 return setup_key(args.provider)
             if args.command == "chat":
-                return interactive(settings, args.allow_writes)
+                return interactive(settings, args.allow_writes, args.approval_mode)
             return rpc(settings)
         if args.command == "skills":
             from .skills import list_packs
@@ -81,7 +83,8 @@ def main(argv: list[str] | None = None) -> int:
             steps = [{"tool": "environment", "arguments": {}},
                      {"tool": "describe", "arguments": {"dataset": "SIMULATED_DATASET"}}]
             from .approvals import terminal_approval
-            result = Agent(MockRuntime(), settings.workspace, settings.max_steps).run(PlanPlanner(steps), approve=terminal_approval)
+            result = Agent(MockRuntime(), settings.workspace, settings.max_steps).run(
+                PlanPlanner(steps), approve=terminal_approval, approval_mode=settings.approval_mode)
         elif args.command == "doctor":
             python = discover_python(settings.python)
             probe = ArcPyRuntime(python, settings.timeout_seconds).call("environment", {}, settings.workspace)
@@ -99,7 +102,9 @@ def main(argv: list[str] | None = None) -> int:
             memory = MemoryStore(settings.workspace / "memory.json")
             runtime = MockRuntime(settings.skills_dir, memory) if args.mock else ArcPyRuntime(discover_python(settings.python), settings.timeout_seconds, settings.skills_dir, data_roots=settings.data_roots, memory=memory)
             from .approvals import terminal_approval
-            result = Agent(runtime, settings.workspace, settings.max_steps).run(PlanPlanner(steps), allow_writes=args.allow_writes, approve=terminal_approval)
+            result = Agent(runtime, settings.workspace, settings.max_steps).run(
+                PlanPlanner(steps), allow_writes=args.allow_writes, approve=terminal_approval,
+                approval_mode=args.approval_mode or settings.approval_mode)
         print_json(result)
         return 0 if result["status"] == "completed" else 1
     except (OSError, ValueError, TypeError, KeyError) as exc:

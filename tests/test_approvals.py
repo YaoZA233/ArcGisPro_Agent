@@ -54,6 +54,29 @@ class ApprovalTests(unittest.TestCase):
             self.assertFalse((Path(result["run_dir"]) / "outputs").exists())
         self.runtime.call.assert_not_called()
 
+    def test_full_access_mode_auto_allows_reads_and_writes_without_handler(self):
+        steps = [step(), step("buffer", dataset="x", distance="1 Meters", output_name="test")]
+        events = []
+        result = self.run_plan(steps, on_event=events.append, approval_mode="full")
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(self.runtime.call.call_count, 2)
+        decisions = [event["decision"] for event in events if event["event"] == "approval_decided"]
+        self.assertEqual(decisions, ["allow", "allow"])
+        self.assertTrue(all(event["approval_mode"] == "full" for event in events if event["event"] == "tool_requested"))
+
+    def test_full_access_mode_does_not_call_supplied_prompt_handler(self):
+        prompted = []
+        result = self.run_plan([step()], approval_mode="full",
+                               approve=lambda request: prompted.append(request) or {"decision": "deny"})
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(self.runtime.call.call_count, 1)
+        self.assertEqual(prompted, [])
+
+    def test_unknown_approval_mode_is_rejected_before_creating_run(self):
+        with self.assertRaisesRegex(ValueError, "approval_mode"):
+            self.run_plan([step()], approval_mode="sometimes")
+        self.assertFalse((self.root / "runs").exists())
+
     def test_each_step_gets_new_request_and_denial_stops_later_steps(self):
         requests = []
         def approve(request):
@@ -206,6 +229,15 @@ class ApprovalTests(unittest.TestCase):
             self.assertEqual(main(["run", str(plan), "--mock", "--allow-writes"]), 1)
         self.assertEqual(prompt.call_count, 2)
         self.assertIn('"status": "denied"', output.getvalue())
+
+    def test_cli_full_access_mode_runs_without_prompt(self):
+        plan = self.root / "plan-full.json"
+        plan.write_text(json.dumps({"version": 1, "steps": [step()]}), encoding="utf-8")
+        with patch("arcgis_agent.config.Settings.load", return_value=Settings(workspace=self.root)), \
+             patch("builtins.input", side_effect=AssertionError("full mode must not prompt")), \
+             patch("sys.stdout", io.StringIO()) as output:
+            self.assertEqual(main(["run", str(plan), "--mock", "--approval-mode", "full"]), 0)
+        self.assertIn('"status": "completed"', output.getvalue())
 
     def test_typed_catalog_filters_names_and_rejects_code_payloads(self):
         self.assertEqual(len(TOOLS), 62)

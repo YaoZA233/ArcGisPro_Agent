@@ -45,7 +45,8 @@ class InspectCurrentProject:
     def execute(self, parameters, messages):
         config = settings()
         result = Agent(runtime(config), config.workspace, config.max_steps).run(
-            PlanPlanner([{"tool": "project_info", "arguments": {"project": "CURRENT"}}]), approve=toolbox_approval)
+            PlanPlanner([{"tool": "project_info", "arguments": {"project": "CURRENT"}}]),
+            approve=toolbox_approval, approval_mode=config.approval_mode)
         arcpy.AddMessage(json.dumps(result, ensure_ascii=False, indent=2))
         if result["status"] != "completed":
             raise arcpy.ExecuteError("Inspect failed; see the task summary above.")
@@ -54,7 +55,7 @@ class InspectCurrentProject:
 class ExecutePlan:
     def __init__(self):
         self.label = "Execute agent plan / 执行任务计划"
-        self.description = "Execute a validated JSON plan. Write tools require Allow writes. Results go to a new task folder."
+        self.description = "Execute a validated JSON plan. Write tools require Allow writes unless approval_mode=full. Results go to a new task folder."
         self.canRunInBackground = False
 
     def getParameterInfo(self):
@@ -71,7 +72,8 @@ class ExecutePlan:
         plan = json.loads(Path(parameters[0].valueAsText).read_text(encoding="utf-8-sig"))
         steps = validate_plan(plan, config.max_steps)
         result = Agent(runtime(config), config.workspace, config.max_steps).run(
-            PlanPlanner(steps), allow_writes=bool(parameters[1].value), approve=toolbox_approval)
+            PlanPlanner(steps), allow_writes=bool(parameters[1].value), approve=toolbox_approval,
+            approval_mode=config.approval_mode)
         arcpy.AddMessage(json.dumps(result, ensure_ascii=False, indent=2))
         if result["status"] != "completed":
             raise arcpy.ExecuteError("Plan did not complete; see the task summary above.")

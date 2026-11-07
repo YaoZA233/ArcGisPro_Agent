@@ -263,7 +263,14 @@
       </Grid>
      </Border>
      <DockPanel Margin="0,6,0,0">
-      <CheckBox x:Name="AllowWrites" Content="允许写入" VerticalAlignment="Center" ToolTip="预先启用写入能力" Foreground="{DynamicResource Muted}" FontSize="11"/>
+      <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+       <TextBlock Text="授权" Foreground="{DynamicResource Muted}" FontSize="11" VerticalAlignment="Center" Margin="0,0,5,0"/>
+       <ComboBox x:Name="AccessModeCombo" Width="92" Height="26" AutomationProperties.Name="工具授权模式">
+        <ComboBoxItem Content="询问模式" Tag="ask"/>
+        <ComboBoxItem Content="完全访问" Tag="full"/>
+       </ComboBox>
+       <CheckBox x:Name="AllowWrites" Content="允许写入" VerticalAlignment="Center" ToolTip="预先启用写入能力" Foreground="{DynamicResource Muted}" FontSize="11" Margin="8,0,0,0"/>
+      </StackPanel>
       <TextBlock x:Name="DestinationText" Text="Ctrl+Enter 发送" Foreground="{DynamicResource Muted}" FontSize="10" HorizontalAlignment="Right" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
      </DockPanel>
     </StackPanel>

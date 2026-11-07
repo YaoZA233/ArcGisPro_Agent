@@ -451,6 +451,22 @@ class FoundationTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "failure_budget"):
                     Settings.load(config)
 
+    def test_config_approval_mode_defaults_to_ask_and_accepts_full(self):
+        config = self.root / "approval.toml"
+        config.write_text('[agent]\napproval_mode = "full"\n', encoding="utf-8")
+        self.assertEqual(Settings.load(config).approval_mode, "full")
+        default_config = self.root / "default-approval.toml"
+        default_config.write_text('[agent]\n', encoding="utf-8")
+        self.assertEqual(Settings.load(default_config).approval_mode, "ask")
+
+    def test_config_approval_mode_rejects_unknown_values(self):
+        config = self.root / "invalid-approval.toml"
+        for value in ('"auto"', 'true', '1'):
+            with self.subTest(value=value):
+                config.write_text(f'[agent]\napproval_mode = {value}\n', encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, "approval_mode"):
+                    Settings.load(config)
+
     def test_config_paths_relative_to_config_file(self):
         config = self.root / "agent.toml"
         config.write_text('[agent]\nworkspace = "outputs"\nmax_steps = 3\nskills_dir = "packs"\n', encoding="utf-8")

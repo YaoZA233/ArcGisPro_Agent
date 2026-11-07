@@ -9,6 +9,19 @@ import uuid
 
 from .deepseek import Cancelled
 
+APPROVAL_MODES = ("ask", "full")
+
+
+def validate_approval_mode(value: str) -> str:
+    if value not in APPROVAL_MODES:
+        raise ValueError("approval_mode must be 'ask' or 'full'")
+    return value
+
+
+def full_access_approval(request: dict) -> dict:
+    """Automatically grant this operation while retaining the normal audit payload."""
+    return {"decision": "allow", "allow_writes": bool(request.get("writes"))}
+
 
 def terminal_approval(request: dict) -> dict:
     print("\n┌─ 本次操作需要确认 ─────────────────────", flush=True)

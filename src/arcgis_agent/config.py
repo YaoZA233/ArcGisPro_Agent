@@ -23,6 +23,7 @@ class Settings:
     skills_dir: Path | None = None
     data_roots: tuple[Path, ...] = ()
     failure_budget: int = 3
+    approval_mode: str = "ask"
 
     @classmethod
     def load(cls, path: Path | None = None) -> Settings:
@@ -44,6 +45,9 @@ class Settings:
         failure_budget = agent.get("failure_budget", 3)
         if type(failure_budget) is not int or not 1 <= failure_budget <= 20:
             raise ValueError("failure_budget must be an integer between 1 and 20")
+        approval_mode = agent.get("approval_mode", "ask")
+        if approval_mode not in ("ask", "full"):
+            raise ValueError("approval_mode must be 'ask' or 'full'")
         model_timeout = model.get("timeout_seconds", 120)
         if type(model_timeout) is not int or not 1 <= model_timeout <= 600:
             raise ValueError("model timeout_seconds must be an integer between 1 and 600")
@@ -67,7 +71,7 @@ class Settings:
                    arcgis.get("expected_version", "3.5.2"), timeout, steps,
                    name, base_url.rstrip("/"), model_timeout, thinking, max_tokens, model.get("provider", "deepseek"),
                    resolve(agent["skills_dir"]) if agent.get("skills_dir") else None,
-                   tuple(resolve(item) for item in roots), failure_budget)
+                   tuple(resolve(item) for item in roots), failure_budget, approval_mode)
 
 
 def discover_python(explicit: Path | None = None) -> Path:

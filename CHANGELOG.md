@@ -1,5 +1,13 @@
 # 更新日志
 
+## 2026-11-07：工具授权模式
+
+- 新增两种工具授权模式：`ask`（默认，逐次询问）与 `full`（完全访问，自动允许工具调用并自动授予写入能力）。完全访问模式仍经过工具白名单、参数校验、唯一任务目录、禁止覆盖和完整审计事件。
+- 配置链路：`Settings.approval_mode`、`config/agent.example.toml`、CLI `chat/run --approval-mode`、RPC 请求、ArcGIS Pro 面板授权下拉框及 Python 工具箱均已接线；默认行为保持询问模式。
+- 影响模块：`approvals.py`、`agent.py`、`chat.py`、`config.py`、`interfaces.py`、`cli.py`、Pro 面板 XAML/C#、工具箱、README、providers 文档和系统提示词。
+- 验证：新增完全访问读写自动放行、忽略询问回调、非法模式拒绝及配置默认/边界用例；离线测试共 470 项，当前 Linux 主机仍有 1 项既有 Windows `D:/gis` 路径断言失败，未进行真实 ArcPy 或 GitHub 远端验证。
+
+
 ## 2026-11-07：重构优化 Agent 面板 UI
 
 - 移除顶部菱形 AI 装饰 Logo 及臃肿的标题栏，采用 ArcGIS Pro 原生风格的紧凑工具条与状态展示。
