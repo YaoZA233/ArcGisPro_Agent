@@ -482,11 +482,11 @@ public partial class AgentView : UserControl
         liveCard = AddCard("AGENT", false);
         liveSteps = null; activeStep = null; reasoningCollapsed = false; stepClock.Reset();
         liveReasoning = Selectable("", true);
-        reasoningPanel = new Expander { Header = "模型推理 · 实时生成", Content = liveReasoning, IsExpanded = true, Visibility = Visibility.Collapsed, Margin = new Thickness(0, 4, 0, 10) };
+        reasoningPanel = new Expander { Header = "推理过程", Content = liveReasoning, IsExpanded = true, Visibility = Visibility.Collapsed, Margin = new Thickness(0, 4, 0, 8) };
         reasoningPanel.SetResourceReference(ForegroundProperty, "Muted");
         reasoningPanel.Collapsed += (_, _) => reasoningCollapsed = true;
         liveCard.Children.Add(reasoningPanel);
-        liveAnswer = new ContentControl { Content = MessageRenderer.Create("正在理解任务…", this) };
+        liveAnswer = new ContentControl { Content = MessageRenderer.Create("处理中…", this) };
         liveCard.Children.Add(liveAnswer);
     }
 
@@ -603,7 +603,7 @@ public partial class AgentView : UserControl
     private void CompleteAssistant(JsonElement result)
     {
         FlushStreaming();
-        if (reasoningPanel is not null) reasoningPanel.Header = "模型推理 · 由 API 返回";
+        if (reasoningPanel is not null) reasoningPanel.Header = "推理过程";
         string reply = Text(result, "reply");
         if (liveCard is not null && liveAnswer is not null)
         {
@@ -639,9 +639,9 @@ public partial class AgentView : UserControl
     private StackPanel AddCard(string role, bool user)
     {
         var stack = new StackPanel();
-        var title = new TextBlock { Text = role + "  ·  " + DateTime.Now.ToString("HH:mm"), FontSize = 11, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 8) };
+        var title = new TextBlock { Text = role + " · " + DateTime.Now.ToString("HH:mm"), FontSize = 11, FontWeight = FontWeights.Normal, Margin = new Thickness(0, 0, 0, 6), Opacity = 0.7 };
         title.SetResourceReference(TextBlock.ForegroundProperty, "Accent"); stack.Children.Add(title);
-        var border = new Border { Child = stack, CornerRadius = new CornerRadius(9), BorderThickness = new Thickness(1), Padding = new Thickness(13), Margin = new Thickness(user ? 12 : 0, 0, 0, 12) };
+        var border = new Border { Child = stack, CornerRadius = new CornerRadius(10), BorderThickness = new Thickness(1), Padding = new Thickness(14), Margin = new Thickness(user ? 24 : 0, 0, user ? 0 : 24, 10) };
         border.SetResourceReference(Border.BackgroundProperty, user ? "AccentSoft" : "Surface"); border.SetResourceReference(Border.BorderBrushProperty, "Line");
         Transcript.Children.Add(border); Animate(border); ScrollEnd(); return stack;
     }
@@ -681,7 +681,7 @@ public partial class AgentView : UserControl
         row.Details.SetResourceReference(ForegroundProperty, "Muted");
         var content = new StackPanel();
         content.Children.Add(head); content.Children.Add(row.Progress); content.Children.Add(row.Details);
-        row.Border = new Border { Child = content, CornerRadius = new CornerRadius(7), Padding = new Thickness(10, 7, 10, 6), Margin = new Thickness(0, 0, 0, 6), BorderThickness = new Thickness(1) };
+        row.Border = new Border { Child = content, CornerRadius = new CornerRadius(8), Padding = new Thickness(10, 8, 10, 7), Margin = new Thickness(0, 0, 0, 5), BorderThickness = new Thickness(1) };
         row.Border.SetResourceReference(Border.BackgroundProperty, "Hover");
         row.Border.SetResourceReference(Border.BorderBrushProperty, "Line");
         parent.Children.Add(row.Border);
@@ -708,8 +708,8 @@ public partial class AgentView : UserControl
     private void AddWelcome()
     {
         var card = AddCard("WORKSPACE", false);
-        var heading = new TextBlock { Text = "从一个空间问题开始", FontSize = 18, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 8), TextWrapping = TextWrapping.Wrap };
-        card.Children.Add(heading); card.Children.Add(Selectable("检查数据、理解工程、生成分析成果。添加图片或文件，让任务拥有更完整的上下文。", true));
+        var heading = new TextBlock { Text = "GIS Workspace", FontSize = 16, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 6), TextWrapping = TextWrapping.Wrap };
+        card.Children.Add(heading); card.Children.Add(Selectable("数据检查、空间分析、地图制图。支持拖入图片和文件。", true));
         foreach (string prompt in new[] { "检查我的 ArcGIS 环境", "当前工程有哪些地图和图层？", "我想创建 500 米缓冲区，请先告诉我需要哪些数据。" })
         { var button = ActionButton(prompt, () => { PromptBox.Text = prompt; PromptBox.Focus(); }); button.HorizontalContentAlignment = HorizontalAlignment.Left; button.Margin = new Thickness(0, 8, 0, 0); button.Content = new TextBlock { Text = prompt, TextWrapping = TextWrapping.Wrap }; card.Children.Add(button); }
     }
@@ -796,7 +796,7 @@ public partial class AgentView : UserControl
                 string reasoning = Text(turn, "reasoning");
                 if (!string.IsNullOrWhiteSpace(reasoning) && ShowReasoning.IsChecked == true)
                 {
-                    var panel = new Expander { Header = "模型推理 · 由 API 返回", Content = Selectable(reasoning, true), Margin = new Thickness(0, 0, 0, 10) };
+                    var panel = new Expander { Header = "推理过程", Content = Selectable(reasoning, true), Margin = new Thickness(0, 0, 0, 8) };
                     panel.SetResourceReference(ForegroundProperty, "Muted"); card.Children.Add(panel);
                 }
                 if (turn.TryGetProperty("observations", out var observations))
@@ -872,11 +872,11 @@ public partial class AgentView : UserControl
     private void Theme_Click(object sender, RoutedEventArgs e) { dark = !dark; ApplyTheme(); SaveAppearance(); }
     private void ApplyTheme()
     {
-        var colors = dark ? new[] { "#17232C", "#22313C", "#EDF4F6", "#B3C4D0", "#3D5362", "#80D4C4", "#264B48", "#304553", "#57432E" }
-                          : new[] { "#F3F6F8", "#FFFFFF", "#172F3B", "#526675", "#D9E2E8", "#096D68", "#E4F2EE", "#EAF0F4", "#FFF0DF" };
+        var colors = dark ? new[] { "#1C1F26", "#24272E", "#E0E2E6", "#8A8F9A", "#363940", "#4A9FD8", "#2A3545", "#2E3138", "#3D2E24" }
+                          : new[] { "#F7F8FA", "#FFFFFF", "#1B2838", "#6B7B8D", "#E2E6EB", "#2B6CB0", "#EBF2FA", "#F0F2F5", "#FEF3EB" };
         var keys = new[] { "Page", "Surface", "Ink", "Muted", "Line", "Accent", "AccentSoft", "Hover", "Warning" };
         for (int i = 0; i < keys.Length; i++) Resources[keys[i]] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(colors[i]));
-        Resources["OnAccent"] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(dark ? "#092B2B" : "#FFFFFF"));
+        Resources["OnAccent"] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(dark ? "#E8ECF0" : "#FFFFFF"));
     }
     private void LoadAppearance()
     {
