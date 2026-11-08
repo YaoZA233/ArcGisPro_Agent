@@ -141,7 +141,7 @@ python -m unittest discover -s tests -v
 | 长期记忆 | `remember` |
 | Pro 面板宿主 | `map_context`、`get_selection`、`export_selection`、`add_to_map`、`set_layer_visibility` |
 
-覆盖范围包括：数据检查、复合属性筛选、按位置选择、邻近分析、泰森多边形、缓冲区、裁剪、相交、融合、投影、空间连接、栅格裁剪、属性与几何副本编辑、受限算术字段计算、结构化数据验收、CSV/GeoJSON/Shapefile 导出、表格与 GPKG/KML 数据接入、插值与密度、分区统计、地形与等高线、重分类与山体阴影、栅格重采样与投影、水文链（填洼 / 流向 / 汇流累积）、叠合与擦除、几何重塑、属性连接、布局出图与图片/PDF 导出、声明式技能包读取，以及 Pro 当前地图读取、添加图层和可见性控制。
+覆盖范围包括：数据检查、复合属性筛选、按位置选择、邻近分析、泰森多边形、缓冲区、裁剪、相交、融合、投影、空间连接、栅格裁剪、属性与几何副本编辑、受限算术字段计算、结构化数据验收、CSV/GeoJSON/Shapefile 导出、表格与 GPKG/KML 数据接入、插值与密度、分区统计、地形与等高线、重分类与山体阴影、栅格重采样与投影、水文链（填洼 / 流向 / 汇流累积）、叠合与擦除、几何重塑、属性连接、布局出图与图片/PDF 导出、声明式技能包读取，以及 Pro 当前地图读取、添加图层和可见性控制。出图工具 `build_layout` 提供 6 种专业版式预设（`STANDARD`、`MAP_FOCUS`、`BOTTOM_PANEL`、`REPORT`、`POSTER`、`MINIMAL`）与 27 个现代高审美色板（含 Viridis、Magma、Warm、Teal、莫兰迪 Morandi、北欧 Nordic、Natural Earth 现代地形分层设色等），支持副标题 `subtitle` 与完整图廓排版。
 
 另内置 **7 个技能包**（水文链、适宜性选址、数据质量检查、插值成图、坐标统一叠合、表格转密度图、副本编辑交付），把已验证工具编排成多步方法模板供模型加载，见 [技能说明](docs/skills.md)。
 

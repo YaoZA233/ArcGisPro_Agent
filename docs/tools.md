@@ -62,7 +62,7 @@ CLI 使用 `y / n / c`，回车默认拒绝。面板确认卡片展示工具、�
 | `export_features` | `dataset`, `format`, `output_name` | 导出 `GEOJSON`（`<output_name>.geojson`，转 WGS84）或 `SHAPEFILE`（`<output_name>.shp`） |
 | `import_table_points` | `dataset`, `output_name`, `lat_field?`, `lon_field?`, `wkid?` | CSV/Excel 表转点要素类；自动识别经纬度列或显式指定，坏坐标行跳过并计数；默认 WKID 4326；Excel 表需带 `Sheet1$` 之类工作表后缀 |
 | `convert_dataset` | `dataset`, `output_name` | GPKG 等矢量数据复制为 results.gdb 新要素类；KML/KMZ 解包到任务目录地理数据库并返回成员清单，可再用 copy_features 选入 results.gdb |
-| `build_layout` | `title`, `layers`, `output_name`, `page_size?`, `orientation?`, `elements?`, `extent?`, `styles?`, `labels?` | 复制 Pro 自带空白模板，在任务目录新建出图工程：一个地图 + 一个图幅 + 图名 + 图廓元素，按 `styles`（每条 `{layer, palette, field?, classes?, method?}`）用预设色板符号化、按 `labels`（每条 `{layer, field, size?}`）用 Arcade 标注，保存为 `cartography/<output_name>.aprx`，返回工程路径、布局名、图层名、`page_mm`、`elements`、`spatial_reference`（图层坐标系名与 wkid）、`extent` 与 `extent_source`（`requested` / `data_extent`），以及 `symbology` 段（每个图层实际走的 renderer、色板、分级断点与色值、唯一值类别、`unmatched` 未配到语义色的地类名、`sampled` 是否因超过 20 万值抽样近似）与 `labels` 段（实际生效的标注图层与字段） |
+| `build_layout` | `title`, `subtitle?`, `layers`, `output_name`, `page_size?`, `orientation?`, `layout_style?`, `elements?`, `extent?`, `styles?`, `labels?` | 复制 Pro 自带空白模板，在任务目录新建出图工程：一个地图 + 一个图幅 + 图名（及可选副标题/制图信息） + 图廓元素，按 `layout_style`（`STANDARD / MAP_FOCUS / BOTTOM_PANEL / REPORT / POSTER / MINIMAL`）进行版式构图，按 `styles`（每条 `{layer, palette, field?, classes?, method?}`）用预设色板符号化、按 `labels`（每条 `{layer, field, size?}`）用 Arcade 标注，保存为 `cartography/<output_name>.aprx`，返回工程路径、布局名、图层名、`page_mm`、`elements`、`spatial_reference`（图层坐标系名与 wkid）、`extent` 与 `extent_source`（`requested` / `data_extent`），以及 `symbology` 段（每个图层实际走的 renderer、色板、分级断点与色值、唯一值类别、`unmatched` 未配到语义色的地类名、`sampled` 是否因超过 20 万值抽样近似）与 `labels` 段（实际生效的标注图层与字段） |
 | `export_layout` | `project`, `layout?`, `format`, `output_name`, `dpi?` | 只读打开 `.aprx` 并把布局导出为 `cartography/<output_name>.<扩展名>`；不保存、不改动工程文件 |
 | `list_skills` | 无 | 列出声明式多步技能包（名称、用途、参数、步骤数、来源）；只读本地 JSON，不访问 GIS 数据 |
 | `read_skill` | `name` | 读取技能包完整步骤模板与注意事项；只读本地 JSON，执行仍须逐个调用工具并单独授权 |
@@ -96,17 +96,23 @@ CLI 使用 `y / n / c`，回车默认拒绝。面板确认卡片展示工具、�
 
 出图分两步，各自独立授权：
 
-1. `build_layout` 复制本机安装自带的 `Resources/ArcToolBox/Services/routingservices/data/Blank.aprx`，在 `outputs/cartography/<output_name>.aprx` 新建一个只含一张地图和一个布局的工程，加入 `layers`（1–12 个，须有几何；表格会被拒绝）、图幅、图名（同时作为布局名称）和 `elements` 选中的图廓元素，然后保存这个**新建的**工程。默认 `A4` 横向、`["LEGEND","NORTH_ARROW","SCALE_BAR"]`；`page_size` 另有 `A3 / A2 / A1 / LETTER / TABLOID`，`orientation` 另有 `PORTRAIT`，`elements` 可传空数组去掉图廓，`SCALE_BAR` 与 `DUAL_SCALE_BAR` 互斥。
+1. `build_layout` 复制本机安装自带的 `Resources/ArcToolBox/Services/routingservices/data/Blank.aprx`，在 `outputs/cartography/<output_name>.aprx` 新建一个只含一张地图和一个布局的工程，加入 `layers`（1–12 个，须有几何；表格会被拒绝）、图幅、图名（同时作为布局名称，支持通过 `subtitle` 传入副标题）和 `elements` 选中的图廓元素，然后保存这个**新建的**工程。默认 `A4` 横向、`["LEGEND","NORTH_ARROW","SCALE_BAR"]` 和 `STANDARD` 版式；`layout_style` 可选 `STANDARD / MAP_FOCUS / BOTTOM_PANEL / REPORT / POSTER / MINIMAL`，分别对应经典右侧分栏、沉浸大地图悬浮角标、横向综合底部通栏信息栏、正式出版报告、展板海报和北欧极简留白场景。`page_size` 另有 `A3 / A2 / A1 / LETTER / TABLOID`，`orientation` 另有 `PORTRAIT`，`elements` 可传空数组去掉图廓，`SCALE_BAR` 与 `DUAL_SCALE_BAR` 互斥。图例、指北针和比例尺按所选版式自适应放置在页面安全区域内。
 2. `export_layout` 用上一步返回的 `project` 与 `layout` 名称（或 `project_info` 读到的布局）导出 `PNG / JPEG / PDF / TIFF / SVG`，`dpi` 限 72–600，默认 300。它**只读打开**工程，从不调用 `save()`，返回里的 `project_modified` 恒为 `false`；真实冒烟用导出前后的文件摘要核验这一点。
 
 `extent` 省略时取全部图层范围的并集；各图层坐标系不一致会在复制模板前拒绝，需先用 `project` 统一坐标系或显式给出 `extent`（`xmax>xmin` 且 `ymax>ymin`，使用图层自身的线性单位）。图层是地理坐标系而 `extent` 给出经度 ±180／纬度 ±90 之外的数值时直接拒绝，因为 `camera.setExtent` 按地图自身的单位读数，米制数值只会导出一张空图。所有可能被拒绝的检查都排在复制模板之前，因此被拒的调用不会残留半成品 `.aprx`、也不会创建 `cartography` 目录；建图或导出中途失败会删除自己创建的文件。`project` 参数在 Pro 工具箱内可用 `CURRENT`，此时同样不保存用户工程。
 
 本机 3.5.2 实测被运行时拒绝、因此工具不提供的能力：`georeferenceMapFrame`/`worldFile` 导出选项（任意取值都报 ValueError）、按格式设置色彩模式（PNG 无该属性，TIFF/PNG 只接受枚举真彩色值）。图名与图廓元素用 `arcpy.mp` 原生 API 与 CIM 文本图形实现，样式取 Pro 默认样式库（`ArcGIS 2D` 的 NORTH_ARROW / SCALE_BAR / LEGEND 列表项）。
 
-符号化与标注（`styles` / `labels`）用 9 个预设色板，配色不开放自由调色，只能选色板，模型指定不了也看不见具体颜色：`BLUES`/`GREENS`/`REDS`/`RD_BU`（SEQUENTIAL 连续分级）、`CATEGORY10`/`LAND_USE`（QUALITATIVE 类别）、`ELEVATION`/`HILLSHADE_GRAY`（TERRAIN 地形）、`BASE`（示意图）。色板 × 数据类型兼容矩阵以 `symbology.renderer_kind` / `validate_style_spec` 为准——
+符号化与标注（`styles` / `labels`）提供 27 个现代高审美预设色板，配色不开放自由调色，只能选色板，模型指定不了也看不见具体颜色：
+- `SEQUENTIAL`（连续分级/单双向色阶，各支持 3/5/7 档）：`VIRIDIS`（现代科学标杆）、`MAGMA`（深邃热力高光）、`PLASMA`（高饱和能量）、`WARM`（经典黄橙红暖色）、`TEAL`（雅致薄荷青蓝）、`BLUES`、`GREENS`、`REDS`、`PURPLES`（典雅紫调）、`ORANGES`（暖橙琥珀）、`RD_BU`（红蓝双向）、`SPECTRAL`（光谱多相发散）、`TEAL_ROSE`（高端玫红-青绿对比）。
+- `TERRAIN`（地形高程/水深栅格，7 档色带）：`ELEVATION`（经典高程）、`TERRAIN_MODERN`（Natural Earth 现代分层设色）、`OCEAN`（海洋水深）、`HILLSHADE_GRAY`（晕渲灰度）。
+- `QUALITATIVE`（定性/类别渲染，10 色）：`MORANDI`（莫兰迪高级灰低饱和，规划学术首选）、`NORDIC`（北欧极简冷暖调）、`PASTEL`（柔和马卡龙清爽）、`VIBRANT`（现代平铺鲜明高对比）、`CATEGORY10`（经典分类）、`LAND_USE`（国土空间规划语义匹配）。
+- `BASE`（示意与底图基准）：`BASE`（经典蓝灰）、`BASE_GRAY`（极简中性灰）、`BASE_WARM`（复古暖沙）、`BASE_DARK`（科技暗色）。
 
-- **栅格**接受 6 个色板：`SEQUENTIAL` 四板 + `TERRAIN` 的 `ELEVATION`/`HILLSHADE_GRAY`，一律走连续多段色带（RASTER_RAMP），**不传 `field`**（传了会被拒）。
-- **矢量**接受 7 个色板：`SEQUENTIAL` → 分级色彩（CLASS_BREAKS，必填数值 `field`）、`QUALITATIVE`（`CATEGORY10`/`LAND_USE`）→ 唯一值（UNIQUE_VALUE，必填文本或整数 `field`）、`BASE` → 简单符号（SIMPLE，不传参数）。`TERRAIN` 用于矢量、`QUALITATIVE`/`BASE` 用于栅格都会被拒绝并列出可用色板。
+色板 × 数据类型兼容矩阵以 `symbology.renderer_kind` / `validate_style_spec` 为准——
+
+- **栅格**接受全部 `SEQUENTIAL`（13 板）与 `TERRAIN`（4 板），一律走连续多段色带（RASTER_RAMP），**不传 `field`**（传了会被拒）。
+- **矢量**接受全部 `SEQUENTIAL` → 分级色彩（CLASS_BREAKS，必填数值 `field`）、`QUALITATIVE`（6 板）→ 唯一值（UNIQUE_VALUE，必填文本或整数 `field`）、`BASE`（4 板）→ 简单符号（SIMPLE，不传参数）。`TERRAIN` 用于矢量、`QUALITATIVE`/`BASE` 用于栅格都会被拒绝并列出可用色板。
 - 分级参数：`classes` 默认 5、只能取 3/5/7（预设色板只在这三档备有色值，取 4/6 会被拒）；`method` 默认 `EQUAL_INTERVAL`，只有 `EQUAL_INTERVAL` 与 `QUANTILE` 两种。超过 20 万值时按固定步长系统抽样，分位数断点变近似值，返回的 `sampled` 会如实标注。唯一值类别上限 10，超出即拒（提示改用分级或先归并类别）。
 - 轮廓固定不开放：分级用细白线（#FFFFFF 0.2）分离色块，唯一值用深灰线（#666666 0.4）强调边界。
 - `labels` 每条 `{layer, field, size?}`，用 Arcade 表达式标注，`size` 默认 9、限 6–24 pt；**栅格图层无属性字段，标注请求会被拒绝**（提示改用图名或先栅格转要素）。

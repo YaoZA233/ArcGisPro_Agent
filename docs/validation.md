@@ -2,6 +2,8 @@
 
 ## 批次 10 符号化与标注（2026-11-06）
 
+> 后续修复：标题已改用可持久化的 `CIMSymbolReference.symbol`、`CIMTextSymbol.height` 和 `HorizontalAlignment.Center`，离线测试已覆盖。本机本轮无法完成 `Layout.export` 的真实渲染复验，旧缺陷记录仍保留在下文作为历史证据。
+
 本批次给 `build_layout` 增加两个参数（`styles` 色板符号化、`labels` 图层标注），不新增 LLM 可见工具、不新增写路径，只读不变量不变。符号化只走**受控预设色板**（BLUES/GREENS/RD_BU/REDS/CATEGORY10/LAND_USE/BASE/ELEVATION/HILLSHADE_GRAY），不给模型自由调色参数；分级只支持**等距分位（EQUAL_INTERVAL）与分位数（QUANTILE）**，无 Jenks、无手动断点。
 
 - 系统 Python 3.14.6：`PYTHONPATH=src python -m unittest discover -s tests` **458 项离线测试全部通过**（终审整改重跑；`test.ps1` 同批）。本批次新增 `tests/test_symbology.py` 117 项（色板完整性契约、断点/唯一值计算、样式与标注校验、矢量/栅格 CIM 生成、标注写回、拒绝路径）与 `tests/test_cartography.py` 的 `SymbologyWiringTests` 11 项（`build_layout` 接线：前置校验先于复制模板、返回 `symbology`/`labels` 段、definition 落到图层、无样式图层不碰 CIM、图名颜色走 `values` 而非关键字的回归，以及双样式图层逐层映射到各自 plan）。既有 `test_approvals.py` 62 断言与批次 3 的 cartography 契约测试均未回归。

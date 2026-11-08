@@ -14,7 +14,8 @@ from tempfile import TemporaryDirectory
 from arcgis_agent import cartography
 from arcgis_agent.cartography import (CARTOGRAPHY_TOOLS, DEFAULT_ELEMENTS, _camera_extent, _map_layer, _page,
                                        _reserve, _staged, _target)
-from arcgis_agent.catalog import EXPORT_EXTENSIONS, PAGE_SIZES, TOOLS, approval_details, validate_call
+from arcgis_agent.catalog import (EXPORT_EXTENSIONS, LAYOUT_STYLE_NAMES, PAGE_SIZES, TOOLS,
+                                  approval_details, validate_call)
 from arcgis_agent.symbology import PALETTES
 
 LAYERS = ["C:/data/regions.shp", "C:/data/roads.shp"]
@@ -48,12 +49,14 @@ class CartographyContractTests(unittest.TestCase):
     def test_valid_layout_arguments(self):
         validate_call("build_layout", base())
         validate_call("build_layout", base(page_size="A3", orientation="PORTRAIT",
+                                           layout_style="POSTER",
                                            elements=["LEGEND", "DUAL_SCALE_BAR"],
                                            extent={"xmin": 108.0, "ymin": 24.0, "xmax": 114.0, "ymax": 30.0}))
         validate_call("build_layout", base(elements=[]))
 
     def test_layout_arguments_reject_unverified_choices(self):
         cases = ({"page_size": "A5"}, {"orientation": "DIAGONAL"}, {"elements": ["GRATICULE"]},
+                 {"layout_style": "NEWSPAPER"},
                  {"elements": ["LEGEND", "LEGEND"]}, {"elements": [1]}, {"title": ""},
                  {"output_name": "图层"}, {"output_name": "1abc"}, {"layers": []},
                  {"layers": [f"C:/d{i}.shp" for i in range(13)]},
@@ -146,6 +149,9 @@ class HelperTests(unittest.TestCase):
         self.assertEqual(_page({"page_size": "A4"}), (297.0, 210.0))
         self.assertEqual(_page({"page_size": "A4", "orientation": "PORTRAIT"}), (210.0, 297.0))
         self.assertEqual(_page({"page_size": "TABLOID", "orientation": "LANDSCAPE"}), (431.8, 279.4))
+
+    def test_layout_style_choices_are_exposed(self):
+        self.assertEqual(sorted(LAYOUT_STYLE_NAMES), sorted(TOOLS["build_layout"].properties["layout_style"]["enum"]))
 
     def test_target_refuses_overwrite(self):
         with TemporaryDirectory() as directory:
@@ -431,6 +437,7 @@ class StubLayout:
     def setDefinition(self, definition):
         self.definition_sets += 1
         self.placed_title = definition.elements[0]
+        self.definition_elements = definition.elements
 
     def listElements(self):
         return [StubElement("图名")] + self.frames + self.surrounds
@@ -516,7 +523,14 @@ class StubCim:
 
     class CIMTextSymbol:
         def __init__(self):
-            self.fontFamilyName, self.fontSize, self.bold, self.horizontalAlignment, self.color = None, None, False, None, None
+            self.fontFamilyName, self.height, self.fontStyleName, self.horizontalAlignment, self.color = None, None, None, None, None
+
+    class CIMSymbolReference:
+        def __init__(self):
+            self.symbol = None
+
+    class HorizontalAlignment:
+        Center = "Center"
 
     class CIMRGBColor:
         def __init__(self, red=0, green=0, blue=0):
@@ -608,6 +622,7 @@ class FlowTests(unittest.TestCase):
         self.assertEqual(result["layout"], "湖南县市地图")
         self.assertEqual(result["layers"], ["regions", "roads"])
         self.assertEqual(result["page_mm"], [297.0, 210.0])
+        self.assertEqual(result["layout_style"], "STANDARD")
         self.assertEqual(result["elements"], ["图例", "指北针", "比例尺"])
         self.assertEqual([element for _, element, _ in StubProject.instances[0].layouts[0].surrounds],
                          ["LEGEND", "NORTH_ARROW", "SCALE_BAR"])
@@ -665,6 +680,15 @@ class FlowTests(unittest.TestCase):
     def test_omitted_elements_use_the_documented_default(self):
         result, _ = self.build(base())
         self.assertEqual(result["elements"], [cartography.ELEMENT_LABELS[name] for name in DEFAULT_ELEMENTS])
+
+    def test_layout_style_changes_composition_and_keeps_surrounds_inside_page(self):
+        result, _ = self.build(base(layout_style="POSTER"))
+        self.assertEqual(result["layout_style"], "POSTER")
+        layout = StubProject.instances[0].layouts[0]
+        for _, _, geometry in layout.surrounds:
+            self.assertEqual(geometry[0], "polygon")
+            points = geometry[1]
+            self.assertTrue(all(0.0 <= point[0] <= 297.0 and 0.0 <= point[1] <= 210.0 for point in points))
 
     def test_side_band_is_reserved_only_for_a_legend(self):
         frame_widths = {}
@@ -917,6 +941,47 @@ class SymbologyWiringTests(unittest.TestCase):
         cartography._build_layout(arcpy, base(), self.root / "run-title")
         self.assertTrue(made, "图名必须构造 CIMRGBColor")
         self.assertEqual(made[-1].values, [0, 0, 0, 100])
+
+    def test_title_uses_persistable_symbol_reference_and_real_text_properties(self):
+        self.build(base(layout_style="POSTER"))
+        graphic = StubProject.instances[0].layouts[0].placed_title.graphic
+        self.assertIsInstance(graphic.symbol, StubCim.CIMSymbolReference)
+        self.assertEqual(graphic.symbol.symbol.height, 30.0)
+        self.assertEqual(graphic.symbol.symbol.fontStyleName, "Bold")
+        self.assertEqual(graphic.symbol.symbol.horizontalAlignment, "Center")
+
+    def test_bottom_panel_layout_places_surrounds_in_footer(self):
+        result, _ = self.build(base(layout_style="BOTTOM_PANEL"))
+        self.assertEqual(result["layout_style"], "BOTTOM_PANEL")
+        layout = StubProject.instances[0].layouts[0]
+        frame_geom = layout.frames[0][1]
+        self.assertEqual(frame_geom[0], "polygon")
+        min_y = min(p[1] for p in frame_geom[1])
+        self.assertAlmostEqual(min_y, 46.0)
+        for _, _, geometry in layout.surrounds:
+            self.assertEqual(geometry[0], "polygon")
+            points = geometry[1]
+            self.assertTrue(all(0.0 <= p[0] <= 297.0 and 0.0 <= p[1] <= 46.0 for p in points))
+
+    def test_map_focus_layout_insets_surrounds_inside_full_bleed_frame(self):
+        result, _ = self.build(base(layout_style="MAP_FOCUS"))
+        self.assertEqual(result["layout_style"], "MAP_FOCUS")
+        layout = StubProject.instances[0].layouts[0]
+        frame_geom = layout.frames[0][1]
+        max_x = max(p[0] for p in frame_geom[1])
+        self.assertAlmostEqual(max_x, 297.0 - 8.0)
+        for _, _, geometry in layout.surrounds:
+            points = geometry[1]
+            self.assertTrue(all(0.0 <= p[0] <= 297.0 and 0.0 <= p[1] <= 210.0 for p in points))
+
+    def test_subtitle_parameter_adds_subtitle_element(self):
+        result, _ = self.build(base(subtitle="数据来源：自然资源部 | 坐标系：CGCS2000"))
+        self.assertEqual(result["subtitle"], "数据来源：自然资源部 | 坐标系：CGCS2000")
+        layout = StubProject.instances[0].layouts[0]
+        self.assertEqual(layout.placed_title.graphic.text, "湖南县市地图")
+        self.assertEqual(len(layout.definition_elements), 2)
+        self.assertEqual(layout.definition_elements[1].name, "副标题")
+        self.assertEqual(layout.definition_elements[1].graphic.text, "数据来源：自然资源部 | 坐标系：CGCS2000")
 
 
 if __name__ == "__main__":

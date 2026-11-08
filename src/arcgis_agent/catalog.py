@@ -30,6 +30,23 @@ PAGE_SIZES = {"A4": [210.0, 297.0], "A3": [297.0, 420.0], "A2": [420.0, 594.0], 
 PAGE_SIZE_NAMES = sorted(PAGE_SIZES)
 ORIENTATIONS = ["LANDSCAPE", "PORTRAIT"]
 LAYOUT_ELEMENTS = ["LEGEND", "NORTH_ARROW", "SCALE_BAR", "DUAL_SCALE_BAR"]
+# Layout composition presets.  These affect page composition only; layer palettes remain
+# independently controlled through ``styles``.
+LAYOUT_STYLES = {
+    "STANDARD": {"margin": 12.0, "title_band": 16.0, "side_band": 62.0, "title_size": 20.0,
+                 "inset": 8.0, "type": "SIDE_COLUMN"},
+    "MAP_FOCUS": {"margin": 8.0, "title_band": 14.0, "side_band": 0.0, "title_size": 18.0,
+                  "inset": 6.0, "type": "INSET"},
+    "BOTTOM_PANEL": {"margin": 12.0, "title_band": 16.0, "side_band": 0.0, "bottom_band": 34.0,
+                    "title_size": 20.0, "inset": 6.0, "type": "BOTTOM_PANEL"},
+    "REPORT": {"margin": 16.0, "title_band": 24.0, "side_band": 76.0, "title_size": 24.0,
+               "inset": 8.0, "type": "SIDE_COLUMN"},
+    "POSTER": {"margin": 20.0, "title_band": 30.0, "side_band": 92.0, "title_size": 30.0,
+               "inset": 10.0, "type": "SIDE_COLUMN"},
+    "MINIMAL": {"margin": 8.0, "title_band": 12.0, "side_band": 0.0, "title_size": 16.0,
+                "inset": 6.0, "type": "INSET"},
+}
+LAYOUT_STYLE_NAMES = sorted(LAYOUT_STYLES)
 EXPORT_FORMATS = ["PNG", "JPEG", "PDF", "TIFF", "SVG"]
 EXPORT_EXTENSIONS = {"PNG": "png", "JPEG": "jpg", "PDF": "pdf", "TIFF": "tif", "SVG": "svg"}
 # 符号化与标注的 schema 常量直接取自 symbology 的实现常量：色板表或分级范围一改，
@@ -179,15 +196,18 @@ TOOLS = {
     "convert_dataset": tool("转换 KML/GPKG 等矢量数据", "conversion.CopyFeatures / KMLToLayer", {"dataset": DATASET, "output_name": OUTPUT}, writes=True, effect="矢量数据复制为 results.gdb 新要素类；KML/KMZ 解包到任务目录地理数据库并返回成员清单；源数据不变"),
     "build_layout": tool("创建出图工程与布局", "mp.ArcGISProject.createLayout / createMapFrame / createMapSurroundElement", {
         "title": text("图名，同时作为布局名称", 120),
+        "subtitle": text("副标题或制图信息说明（数据源、日期、编制单位等）", 200),
         "layers": LAYERS,
         "output_name": text("新工程文件基名（ASCII），生成 cartography/<name>.aprx", 64, pattern=r"[A-Za-z][A-Za-z0-9_]{0,63}"),
         "page_size": {"type": "string", "enum": PAGE_SIZE_NAMES},
         "orientation": {"type": "string", "enum": ORIENTATIONS},
+        "layout_style": {"type": "string", "enum": LAYOUT_STYLE_NAMES,
+                          "description": "版式预设：STANDARD(经典侧边栏)/MAP_FOCUS(沉浸大地图悬浮角标)/BOTTOM_PANEL(底部综合信息栏)/REPORT(报告排版)/POSTER(展板海报)/MINIMAL(北欧极简)"},
         "elements": {"type": "array", "items": {"type": "string", "enum": LAYOUT_ELEMENTS}, "minItems": 0, "maxItems": 4, "uniqueItems": True},
         "extent": MAP_EXTENT,
         "styles": STYLE_ITEMS,
-        "labels": LABEL_ITEMS}, optional=("page_size", "orientation", "elements", "extent", "styles", "labels"), writes=True,
-        effect="在任务目录的 cartography 子目录新建独立出图工程（复制 Pro 自带空白模板，不改动任何已有工程），添加图层、按 styles 指定的预设色板符号化、按 labels 标注、加图幅图名与所选项，再用 export_layout 导出图片。换配色需重建工程"),
+        "labels": LABEL_ITEMS}, optional=("subtitle", "page_size", "orientation", "layout_style", "elements", "extent", "styles", "labels"), writes=True,
+        effect="在任务目录的 cartography 子目录新建独立出图工程（复制 Pro 自带空白模板，不改动任何已有工程），按 layout_style 选择版式，添加图层、按 styles 指定的预设色板符号化、按 labels 标注、加图幅图名与所选项，再用 export_layout 导出图片。换版式或配色需重建工程"),
     "export_layout": tool("导出布局为图片或 PDF", "mp.Layout.export", {
         "project": text("Absolute .aprx path; CURRENT only in the Pro Python toolbox"),
         "layout": text("Exact layout name returned by project_info or build_layout", 120),

@@ -6,7 +6,7 @@ import unittest
 from arcgis_agent.catalog import LAYERS, TOOLS, validate_call
 from arcgis_agent.symbology import (CLASSIFY_METHODS, CLASS_COUNTS, KINDS, LABEL_SIZES, MAX_CLASSES,
                                     MAX_UNIQUE_VALUES, MIN_CLASSES, OUTLINES, PALETTE_NAMES,
-                                    PALETTES, RENDERERS, VALUE_CAP, build_classes,
+                                    PALETTES, RENDERERS, SEQUENTIAL, TERRAIN, VALUE_CAP, build_classes,
                                     collect_categories, collect_values, hex_rgb, land_use_color,
                                     palette_colors, ramp_colors, renderer_kind,
                                     validate_label_spec, validate_style_spec)
@@ -19,7 +19,7 @@ class PaletteTableTests(unittest.TestCase):
         # PALETTES 本身按键排序，使错误消息里列举的色板顺序与 schema enum 都是确定的。
         self.assertEqual(list(PALETTES), sorted(PALETTES))
         self.assertEqual(PALETTE_NAMES, sorted(PALETTES))
-        self.assertEqual(len(PALETTE_NAMES), 9)
+        self.assertEqual(len(PALETTE_NAMES), 27)
 
     def test_every_palette_declares_a_known_kind(self):
         for name, entry in PALETTES.items():
@@ -27,7 +27,7 @@ class PaletteTableTests(unittest.TestCase):
 
     def test_sequential_palettes_have_three_five_and_seven_stops(self):
         sequential = [n for n, e in PALETTES.items() if e["kind"] == "SEQUENTIAL"]
-        self.assertEqual(sorted(sequential), ["BLUES", "GREENS", "RD_BU", "REDS"])
+        self.assertEqual(len(sequential), len(SEQUENTIAL))
         for name in sequential:
             steps = PALETTES[name]["steps"]
             self.assertEqual(sorted(steps), [3, 5, 7], name)
@@ -36,7 +36,7 @@ class PaletteTableTests(unittest.TestCase):
 
     def test_terrain_palettes_only_carry_the_seven_stop_ramp(self):
         terrain = [n for n, e in PALETTES.items() if e["kind"] == "TERRAIN"]
-        self.assertEqual(sorted(terrain), ["ELEVATION", "HILLSHADE_GRAY"])
+        self.assertEqual(len(terrain), len(TERRAIN))
         for name in terrain:
             self.assertEqual(sorted(PALETTES[name]["steps"]), [7], name)
 
@@ -65,7 +65,8 @@ class PaletteTableTests(unittest.TestCase):
                 check([entry["fill"], entry["outline"], entry["line"], entry["point"]], name)
 
     def test_qualitative_palettes_have_the_exact_expected_cardinality(self):
-        self.assertEqual(len(PALETTES["CATEGORY10"]["colors"]), MAX_UNIQUE_VALUES)
+        for name in ("CATEGORY10", "MORANDI", "NORDIC", "PASTEL", "VIBRANT"):
+            self.assertEqual(len(PALETTES[name]["colors"]), MAX_UNIQUE_VALUES)
         self.assertEqual(len(PALETTES["LAND_USE"]["semantic"]), 8)
 
     def test_outline_presets_cover_both_classed_renderers(self):
@@ -95,11 +96,11 @@ class ColorHelperTests(unittest.TestCase):
             palette_colors("CATEGORY10", 5)
 
     def test_ramp_colors_always_returns_seven(self):
-        for name in ("BLUES", "GREENS", "REDS", "RD_BU", "ELEVATION", "HILLSHADE_GRAY"):
+        for name in list(SEQUENTIAL) + list(TERRAIN):
             self.assertEqual(len(ramp_colors(name)), 7, name)
 
     def test_ramp_colors_rejects_palettes_without_a_ramp(self):
-        for name in ("CATEGORY10", "LAND_USE", "BASE"):
+        for name in ("CATEGORY10", "MORANDI", "NORDIC", "PASTEL", "VIBRANT", "LAND_USE", "BASE", "BASE_DARK", "BASE_GRAY", "BASE_WARM"):
             with self.assertRaises(ValueError):
                 ramp_colors(name)
 

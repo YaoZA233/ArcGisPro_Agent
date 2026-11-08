@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ArcGIS Pro Agent — 本地 GIS Agent 插件宣传海报</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Spectral:wght@400;600;700&family=Noto+Serif+SC:wght@600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#F7F8FA;
+    --surface:#FFFFFF;
+    --ink:#1B2838;
+    --muted:#6B7B8D;
+    --line:#E2E6EB;
+    --accent:#2B6CB0;
+    --accent-soft:#EBF2FA;
+    --park:#D8EFC0;
+    --park-deep:#7FA65A;
+    --build:#E3D2F0;
+    --terminal:#14181E;
+    --serif:"Spectral","Noto Serif SC","Source Han Serif SC","Songti SC","SimSun",serif;
+    --sans:"Segoe UI Variable Text","Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    --mono:"Cascadia Code","Consolas","JetBrains Mono",monospace;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html{background:#DFE4EA;}
+  body{
+    font-family:var(--sans);
+    color:var(--ink);
+    display:flex;justify-content:center;
+    padding:28px 12px;
+  }
+  .poster{
+    width:1240px;max-width:100%;
+    background:var(--paper);
+    background-image:
+      linear-gradient(rgba(27,40,56,.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(27,40,56,.035) 1px, transparent 1px);
+    background-size:48px 48px;
+    box-shadow:0 12px 48px rgba(27,40,56,.18);
+  }
+
+  /* ---------- masthead ---------- */
+  .masthead{
+    position:relative;
+    padding:72px 72px 0;
+    overflow:hidden;
+  }
+  .contours{
+    position:absolute;right:-40px;top:-30px;width:760px;height:520px;
+    pointer-events:none;
+  }
+  .eyebrow{
+    font-family:var(--mono);
+    font-size:14px;letter-spacing:.14em;
+    color:var(--accent);
+    text-transform:uppercase;
+    margin-bottom:22px;
+  }
+  h1{
+    font-family:var(--serif);
+    font-weight:700;
+    font-size:84px;line-height:1.04;
+    letter-spacing:.01em;
+    position:relative;z-index:1;
+  }
+  h1 .sub{
+    display:block;
+    font-size:30px;font-weight:600;
+    color:var(--ink);
+    letter-spacing:.24em;
+    margin-top:14px;
+  }
+  h1 .sub .en{letter-spacing:.02em;}
+  .tagline{
+    position:relative;z-index:1;
+    margin-top:26px;
+    max-width:640px;
+    font-size:19px;line-height:1.85;
+    color:var(--muted);
+  }
+  .tagline strong{color:var(--ink);font-weight:600;}
+  .chips{
+    position:relative;z-index:1;
+    list-style:none;display:flex;flex-wrap:wrap;gap:10px;
+    margin:30px 0 44px;
+  }
+  .chips li{
+    font-family:var(--mono);font-size:14px;
+    color:var(--ink);background:var(--surface);
+    border:1px solid var(--line);border-left:3px solid var(--accent);
+    padding:7px 14px;
+  }
+  .chips li:nth-child(2){border-left-color:var(--park-deep);}
+  .chips li:nth-child(4){border-left-color:var(--build);}
+
+  .hero{position:relative;z-index:1;}
+  .hero img{display:block;width:100%;}
+  figcaption{
+    display:flex;align-items:baseline;gap:10px;
+    margin-top:12px;
+    font-size:13.5px;color:var(--muted);
+  }
+  figcaption .fig-id{
+    font-family:var(--mono);font-size:12px;
+    color:var(--accent);letter-spacing:.08em;white-space:nowrap;
+  }
+
+  /* ---------- bands ---------- */
+  .band{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:56px;
+    align-items:center;
+    padding:78px 72px;
+    border-top:1px solid var(--line);
+  }
+  .band.flip .txt{order:2;}
+  .band.flip .shot{order:1;}
+  .band .kicker{
+    display:flex;align-items:center;gap:12px;
+    font-family:var(--mono);font-size:13px;letter-spacing:.22em;
+    color:var(--accent);text-transform:uppercase;
+    margin-bottom:18px;
+  }
+  .band .kicker::after{
+    content:"";flex:1;height:1px;background:var(--line);
+  }
+  .band h2{
+    font-family:var(--serif);
+    font-size:40px;line-height:1.3;font-weight:700;
+    margin-bottom:22px;
+  }
+  .band p{
+    font-size:16.5px;line-height:1.95;color:var(--muted);
+    margin-bottom:14px;
+  }
+  .band p strong{color:var(--ink);font-weight:600;}
+  .band code{
+    font-family:var(--mono);font-size:14.5px;
+    background:var(--accent-soft);color:var(--accent);
+    padding:2px 7px;border-radius:3px;white-space:nowrap;
+  }
+  .shot img{display:block;width:100%;}
+  .shot.tall img{max-height:640px;width:auto;margin:0 auto;}
+
+  /* dark frame for the CLI shot */
+  .shot.dark{background:var(--terminal);padding:14px 14px 0;}
+  .shot.dark figcaption{color:#8A94A2;}
+  .shot.dark figcaption .fig-id{color:#4A9FD8;}
+
+  /* ---------- attribute table ---------- */
+  .spec{
+    padding:78px 72px;
+    border-top:1px solid var(--line);
+    background:var(--surface);
+  }
+  .spec h2{
+    font-family:var(--serif);font-size:40px;font-weight:700;
+    margin-bottom:10px;
+  }
+  .spec .hint{font-size:15px;color:var(--muted);margin-bottom:34px;}
+  table.attr{
+    width:100%;border-collapse:collapse;
+    font-size:15.5px;
+    background:var(--paper);
+  }
+  table.attr th{
+    font-family:var(--mono);font-size:13px;font-weight:400;
+    text-align:left;letter-spacing:.06em;
+    color:var(--ink);
+    background:var(--accent-soft);
+    border:1px solid var(--line);
+    padding:10px 16px;
+  }
+  table.attr th.icon{width:34px;padding:6px 10px;}
+  table.attr td{
+    border:1px solid var(--line);
+    padding:13px 16px;
+    vertical-align:top;
+    line-height:1.75;
+  }
+  table.attr td.oid{
+    font-family:var(--mono);font-size:13px;color:var(--muted);
+    width:44px;text-align:right;background:var(--surface);
+  }
+  table.attr td.field{
+    font-weight:600;width:150px;white-space:nowrap;
+    background:var(--surface);
+  }
+  table.attr td.value code{
+    font-family:var(--mono);font-size:13.5px;color:var(--accent);
+  }
+  table.attr tr:nth-child(even) td.field,
+  table.attr tr:nth-child(even) td.oid{background:#FBFCFE;}
+
+  /* ---------- footer ---------- */
+  footer{
+    background:var(--ink);color:#DDE4EC;
+    padding:56px 72px 48px;
+  }
+  footer .repo{
+    font-family:var(--mono);font-size:26px;
+    color:#FFFFFF;letter-spacing:.02em;
+    margin-bottom:10px;
+  }
+  footer .repo .ns{color:#4A9FD8;}
+  footer .desc{font-size:15px;color:#8A94A2;margin-bottom:34px;}
+  .steps{
+    display:grid;grid-template-columns:repeat(3,1fr);gap:20px;
+    counter-reset:step;
+  }
+  .steps div{
+    border:1px solid #363940;
+    padding:18px 20px;
+    background:#202A38;
+  }
+  .steps .n{
+    font-family:var(--mono);font-size:12px;letter-spacing:.18em;
+    color:#4A9FD8;display:block;margin-bottom:8px;
+  }
+  .steps b{display:block;font-size:15.5px;color:#E8ECF0;margin-bottom:6px;font-weight:600;}
+  .steps code{font-family:var(--mono);font-size:12.5px;color:#9FB4C9;display:block;line-height:1.7;}
+  footer .legal{
+    margin-top:34px;display:flex;justify-content:space-between;gap:20px;
+    font-family:var(--mono);font-size:12.5px;color:#66707C;
+    border-top:1px solid #363940;padding-top:18px;
+  }
+
+  @media (max-width:900px){
+    h1{font-size:56px;}
+    .band{grid-template-columns:1fr;padding:52px 32px;}
+    .band.flip .txt{order:1;}
+    .band.flip .shot{order:2;}
+    .masthead,.spec{padding-left:32px;padding-right:32px;}
+    footer{padding:40px 32px;}
+    .steps{grid-template-columns:1fr;}
+    .contours{width:420px;}
+  }
+  @media (prefers-reduced-motion:reduce){
+    *{animation:none!important;transition:none!important;}
+  }
+  @media print{
+    html,body{background:#fff;padding:0;}
+    .poster{box-shadow:none;width:100%;}
+  }
+</style>
+</head>
+<body>
+<div class="poster">
+
+  <!-- ================= MASTHEAD ================= -->
+  <header class="masthead">
+    <svg class="contours" viewBox="0 0 760 520" fill="none" aria-hidden="true">
+      <g stroke="#B9C9D9" stroke-width="1.2" opacity=".55">
+        <path d="M470 60c95 12 160 80 150 165-9 78-92 138-186 130-88-7-150-72-146-150 4-74 88-155 182-145z"/>
+        <path d="M472 100c72 8 122 62 114 127-8 60-70 106-141 100-67-6-114-56-111-116 3-57 68-118 138-111z"/>
+        <path d="M474 142c50 4 86 44 80 90-6 42-50 75-100 71-47-4-80-40-78-82 2-40 49-82 98-79z"/>
+        <path d="M476 182c29 1 50 26 46 53-4 25-30 43-59 40-27-3-45-23-44-47 1-23 28-48 57-46z"/>
+      </g>
+      <g stroke="#A9C48E" stroke-width="1.2" opacity=".5">
+        <path d="M150 330c58 4 100 44 96 92-4 45-52 78-110 74-52-4-92-42-88-88 4-42 50-81 102-78z"/>
+        <path d="M152 366c38 2 66 28 63 59-3 29-34 50-71 47-34-3-60-27-57-56 3-27 32-53 65-50z"/>
+        <path d="M154 398c21 1 37 15 35 32-2 16-19 27-40 25-18-2-33-14-31-30 2-14 18-29 36-27z"/>
+      </g>
+      <g stroke="#6B7B8D" stroke-width="1.4" opacity=".65">
+        <path d="M470 216l0-14M470 244l0 14M456 230l-14 0M498 230l14 0"/>
+        <path d="M152 415l0-11M152 437l0 11M141 426l-11 0M175 426l11 0"/>
+      </g>
+      <text x="484" y="222" font-family="Consolas,monospace" font-size="13" fill="#6B7B8D" opacity=".8">418</text>
+      <text x="166" y="421" font-family="Consolas,monospace" font-size="12" fill="#6B7B8D" opacity=".8">126</text>
+    </svg>
+
+    <p class="eyebrow">ArcGIS Pro 3.5.2 · Windows · 本地运行 · MIT</p>
+    <h1>ArcGIS Pro Agent<span class="sub">面板与终端，同一个 <span class="en">GIS&nbsp;Agent</span></span></h1>
+    <p class="tagline">
+      在 Pro 停靠面板或 PowerShell 里说一句话，<strong>数据检查、空间分析、制图出图</strong>全程自动规划执行。
+      模型只负责规划——每一次工具调用（包括只读）都先出示操作、参数与影响，<strong>你允许，它才动</strong>；
+      成果落在带唯一 ID 的任务目录里，逐步留痕、随时回溯。
+    </p>
+    <ul class="chips">
+      <li>62 个结构化工具</li>
+      <li>7 个多步技能包</li>
+      <li>逐次授权执行</li>
+      <li>任务全程留痕</li>
+      <li>零第三方 Python 依赖</li>
+    </ul>
+
+    <figure class="hero">
+      <img src="assets/shot_pro_full.png" alt="ArcGIS Pro 中的 GIS Agent 功能区与停靠面板">
+      <figcaption><span class="fig-id">图 01</span>ArcGIS Pro 功能区新增 GIS Agent 选项卡，停靠面板读取当前工程上下文，支持拖入图片、文本与 GIS 数据路径。</figcaption>
+    </figure>
+  </header>
+
+  <!-- ================= BAND 1 · 面板 ================= -->
+  <section class="band">
+    <figure class="shot">
+      <img src="assets/crop_panel_env.png" alt="GIS Agent 面板返回的 ArcGIS 环境与工程概况">
+      <figcaption><span class="fig-id">图 02</span>“检查我的 ArcGIS 环境”——回答里的产品级别、Build 号、Python 路径全部来自 environment / project_info 工具的真实返回。</figcaption>
+    </figure>
+    <div class="txt">
+      <p class="kicker">Pro 内嵌面板</p>
+      <h2>不用离开地图，<br>把任务说给 GIS 听</h2>
+      <p>
+        “查看当前地图有哪些图层”“把道路生成 500 米缓冲区，再添加到当前地图”——
+        面板把 <strong>当前 Pro 工程</strong>作为上下文，授权 <code>map_context</code> 后可读会话中的地图、图层与可见性状态，
+        <code>add_to_map</code> 把成果直接放回你的地图。
+      </p>
+      <p>
+        模型推理随 API 流式返回<strong>实时显示</strong>，顶部统计真实输入 / 输出 / 缓存命中 token 与耗时；
+        浅色深色一键切换，历史会话可恢复、可导出 Markdown。
+      </p>
+    </div>
+  </section>
+
+  <!-- ================= BAND 2 · CLI ================= -->
+  <section class="band flip">
+    <div class="txt">
+      <p class="kicker">PowerShell CLI</p>
+      <h2>不想开 Pro？<br>终端里是同一个 Agent</h2>
+      <p>
+        <code>.\scripts\agent.ps1 chat</code> 启动对话：思考、工具确认、结果、最终答复与 token 用量<strong>分区显示</strong>，
+        答复按终端宽度排版 Markdown。
+      </p>
+      <p>
+        <code>/resume</code> 恢复历史会话、<code>/memory</code> 查看长期记忆、<code>/providers</code> 切换供应商——
+        CLI、面板与工具箱<strong>共用同一个 Agent、连接配置、工具与任务记录</strong>。
+        <code>agent.ps1 doctor</code> 只读体检 ArcPy、许可证与实际版本。
+      </p>
+    </div>
+    <figure class="shot dark">
+      <img src="assets/shot_cli.png" alt="agent.ps1 chat 命令行对话输出">
+      <figcaption><span class="fig-id">图 03</span>CLI 回答“地图范围是哪座城”：三条只读查询取证，属性表、坐标系与 WKID 逐项核对后给出结论。</figcaption>
+    </figure>
+  </section>
+
+  <!-- ================= BAND 3 · 授权与留痕 ================= -->
+  <section class="band">
+    <figure class="shot tall">
+      <img src="assets/crop_steps.png" alt="面板中的逐步工具时间线">
+      <figcaption><span class="fig-id">图 04</span>一句“帮我出一个 Wellington 的公园分布图，做好看点”展开为 12 步工具时间线，每步可展开参数、运行日志与结果。</figcaption>
+    </figure>
+    <div class="txt">
+      <p class="kicker">逐次授权 · 全程留痕</p>
+      <h2>每一步先给你看，<br>再决定执不执行</h2>
+      <p>
+        每个工具调用前弹出<strong>确认卡片</strong>：操作、参数、影响与预计输出一目了然，
+        可选“允许本次读取 / 允许本次写入 / 拒绝 / 取消任务”。默认焦点在拒绝，10 分钟未答复即停止。
+      </p>
+      <p>
+        工具失败时，原始错误与提示会反馈给模型<strong>有界自纠</strong>，重新决策仍要重新授权；
+        每次任务自动生成唯一目录：<code>workspace/runs/&lt;UTC_唯一ID&gt;/</code>，
+        <code>events.jsonl</code> 记录请求、授权决定与执行结果，<code>summary.json</code> 汇总最终状态，成果库禁止覆盖已有数据。
+      </p>
+      <p>
+        454 项离线契约测试 + Pro 真机 ArcPy 冒烟，拒绝路径逐一核验零残留。
+      </p>
+    </div>
+  </section>
+
+  <!-- ================= BAND 4 · 制图 ================= -->
+  <section class="band">
+    <div class="txt">
+      <p class="kicker">制图出图</p>
+      <h2>从属性表到成图，<br>一句话交付</h2>
+      <p>
+        <code>build_layout</code> + <code>export_layout</code>：分级色彩、唯一值符号化、预设色板、Arcade 标注，
+        图名、图例、指北针、比例尺一次配齐，导出 <strong>PNG / JPEG / PDF / TIFF / SVG</strong>。
+      </p>
+      <p>
+        上图右侧为 Wellington 公园分布图成果：按 <code>Shape_Area</code> 分位数 5 级渲染，
+        主要公园层叠置标注、Pro 自动避让；出图前对记录数、字段、WKID、范围做<strong>结构化验收</strong>，
+        通过才写进答复——配色观感仍由你打开确认。
+      </p>
+    </div>
+    <div class="shot">
+      <figure>
+        <img src="assets/shot_map_export.png" alt="导出的 Wellington 公园分布图">
+        <figcaption><span class="fig-id">图 05</span>Agent 生成并导出的成品图幅（300 dpi A3 横向），图例含分级断点与城市底图。</figcaption>
+      </figure>
+      <figure style="margin-top:26px;">
+        <img src="assets/crop_panel_accept2.png" alt="面板中的验收结论与任务目录按钮">
+        <figcaption><span class="fig-id">图 06</span>答复末尾如实区分“工具成功”与“业务验收”，一键打开任务目录复查全部留痕。</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ================= ATTRIBUTE TABLE ================= -->
+  <section class="spec">
+    <h2>能力清单</h2>
+    <p class="hint">与数据源属性表同构：一行一个字段，值全部可在仓库 README / docs 中核对。</p>
+    <table class="attr">
+      <thead>
+        <tr>
+          <th style="width:44px;">
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#2B6CB0" stroke-width="1.4" aria-hidden="true" style="vertical-align:-2px;">
+              <rect x="1.5" y="2.5" width="13" height="11"/><path d="M1.5 6h13M6 6v7.5"/>
+            </svg>
+          </th>
+          <th style="width:150px;">字段</th>
+          <th>内容</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td class="oid">1</td><td class="field">入口</td><td class="value">ArcGIS Pro 停靠面板（C# / WPF）· <code>agent.ps1</code> CLI · Python 工具箱</td></tr>
+        <tr><td class="oid">2</td><td class="field">工具</td><td class="value">62 个结构化工具，参数全部类型化校验：缓冲区、裁剪、相交、融合、空间连接、泰森多边形、插值、密度、等高线、水文链、分区统计、字段计算、投影、CSV / GeoJSON / Shapefile 导出……</td></tr>
+        <tr><td class="oid">3</td><td class="field">技能包</td><td class="value">7 个多步方法模板：水文链、适宜性选址、数据质量检查、插值成图、坐标统一叠合、表格转密度图、副本编辑交付</td></tr>
+        <tr><td class="oid">4</td><td class="field">模型</td><td class="value">DeepSeek · Qwen · Kimi · GLM · OpenAI · Claude · Grok · 自定义兼容接口 / 中转站；思考程度与模型列表可管理</td></tr>
+        <tr><td class="oid">5</td><td class="field">授权</td><td class="value">默认 <code>ask</code> 逐次询问（含只读），写入需声明并单次许可；可选 <code>full</code> 自动允许，仍保留白名单、校验与留痕</td></tr>
+        <tr><td class="oid">6</td><td class="field">留痕</td><td class="value"><code>workspace/runs/&lt;UTC_唯一ID&gt;/</code>：events.jsonl · summary.json · 成果 GDB / TIFF，禁止覆盖，全程可回溯</td></tr>
+        <tr><td class="oid">7</td><td class="field">记忆</td><td class="value">长期记忆（常用数据目录、坐标系习惯、交付偏好）自动注入新会话；<code>find_datasets</code> 在配置的数据根目录内自主找数据，不反问路径</td></tr>
+        <tr><td class="oid">8</td><td class="field">依赖</td><td class="value">核心纯 Python，无第三方依赖，不向 Esri 基础环境装包；离线测试仅需系统 Python ≥ 3.11</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ================= FOOTER ================= -->
+  <footer>
+    <p class="repo">github.com/<span class="ns">YaoZA233</span>/ArcGisPro_Agent</p>
+    <p class="desc">MIT 开源 · 源码中不含任何密钥 · 除模型接口调用外无外部网络请求</p>
+    <div class="steps">
+      <div>
+        <span class="n">STEP 01</span>
+        <b>配置密钥</b>
+        <code>.\scripts\agent.ps1 setup-key</code>
+        <code>密钥只写入本机 .env.local</code>
+      </div>
+      <div>
+        <span class="n">STEP 02</span>
+        <b>装进 Pro</b>
+        <code>.\scripts\build-addin.ps1</code>
+        <code>双击 ArcGISAgent.esriAddinX</code>
+      </div>
+      <div>
+        <span class="n">STEP 03</span>
+        <b>开聊</b>
+        <code>功能区 GIS Agent → 打开 Agent</code>
+        <code>或终端 agent.ps1 chat</code>
+      </div>
+    </div>
+    <div class="legal">
+      <span>ArcGIS Pro Agent v0.1.0 · ArcGIS Pro 3.5.2 / Pro Python 3.11</span>
+      <span>模型只负责规划，执行权在你手里</span>
+    </div>
+  </footer>
+
+</div>
+</body>
+</html>

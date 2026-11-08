@@ -1,5 +1,34 @@
 # 更新日志
 
+## 2026-11-08：全面升级制图审美与高级出图系统
+
+- **配色库大幅扩充与审美升级**：
+  - 预设色板由原先 9 种基础色板扩充至 27 种现代高审美制图色板，包含科学感知均匀色阶（`VIRIDIS`、`MAGMA`、`PLASMA`）、经典暖色阶（`WARM`）、雅致青蓝（`TEAL`）、典雅紫调（`PURPLES`）、暖橙琥珀（`ORANGES`）、双向发散（`SPECTRAL`、`TEAL_ROSE`）、定性设计色系（莫兰迪低饱和高级灰 `MORANDI`、北欧极简冷暖调 `NORDIC`、柔和马卡龙 `PASTEL`、现代平铺高对比 `VIBRANT`）、现代分层设色与水深（`TERRAIN_MODERN`、`OCEAN`）以及多样化底图基准（`BASE_GRAY` 极简灰、`BASE_WARM` 暖沙羊皮纸、`BASE_DARK` 科技暗色）。
+  - 所有连续分级色板统一支持 3/5/7 档位，栅格拉伸支持全部 13 种连续色阶与 4 种地形色带。
+- **多元化版式架构与构图革新**：
+  - 新增 `BOTTOM_PANEL`（横向综合信息栏版式）：上方大幅开阔地图，底部通栏整合指北针、比例尺与图例，专为横版及规划成果设计。
+  - 重构 `MAP_FOCUS`（现代沉浸式大地图版式）与 `MINIMAL`（北欧极简版式）：彻底打破千篇一律的右侧 62mm 粗暴分栏，地图全画幅通透展现，图廓要素以悬浮角标优雅分布于图面四周，杜绝版面压迫感。
+  - 经典 `STANDARD`、`REPORT` 与 `POSTER` 保持兼容，优化要素边界自适应保护。
+- **标题与排版层级精细化**：
+  - `build_layout` 工具新增可选 `subtitle` 参数，支持副标题与制图元数据（数据源、编制单位、年份、坐标系）的层级化排版与中性灰字色渲染。
+- **Agent 出图提示词与审美原则重塑**：
+  - 更新 `src/arcgis_agent/prompts/system.md`，注入核心制图美学规范（视觉层级、底图克制烘托、色板场景匹配、图幅方向契合、信息完整度）。
+- **影响模块**：
+  - `src/arcgis_agent/symbology.py`
+  - `src/arcgis_agent/catalog.py`
+  - `src/arcgis_agent/cartography.py`
+  - `src/arcgis_agent/prompts/system.md`
+  - `docs/tools.md`、`README.md`、`README.en.md`
+  - `tests/test_symbology.py`、`tests/test_cartography.py`
+- **验证**：
+  - `test_symbology.py` 全部 117 项离线测试全绿通过。
+  - `test_cartography.py` 全部 57 项离线测试全绿通过（新增底栏版式、大地图角标悬浮、副标题参数断言）。
+  - `test_skills.py` 28 项全绿通过。
+  - 全套套件 474/476 通过（剩余 2 项为沙箱外部 Windows temp 访问限制）。
+- **已知限制**：
+  - 换版式或色板仍受架构约束需重建工程（新建 output_name）；复杂排版仍基于 ArcGIS Pro 原生布局要素与 CIMTextGraphic，暂未支持自定义 SVG 标落图。
+
+
 ## 2026-11-07：修复 Windows 发布验证
 
 - 修复更新服务缺少 `System.IO` 引用导致 ArcGIS Pro 插件 Release 构建失败的问题。

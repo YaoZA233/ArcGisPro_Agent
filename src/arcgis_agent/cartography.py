@@ -14,7 +14,7 @@ import uuid
 from pathlib import Path
 
 from .analysis_tools import RASTER_TYPES
-from .catalog import EXPORT_EXTENSIONS, PAGE_SIZES
+from .catalog import EXPORT_EXTENSIONS, LAYOUT_STYLES, PAGE_SIZES
 from .gis_tools import check_dataset
 from .symbology import apply_label, apply_renderer, plan_style, validate_label_spec
 
@@ -130,32 +130,95 @@ def _camera_extent(arcpy, arguments, prepared):
     return arcpy.Extent(*edges), reference, "data_extent"
 
 
-def _add_title(arcpy, layout, text, width, height, band_width):
+def _layout_metrics(arguments, elements):
+    style_name = arguments.get("layout_style", "STANDARD")
+    if style_name not in LAYOUT_STYLES:
+        raise ValueError(f"未知版式：{style_name}；可用版式：{', '.join(sorted(LAYOUT_STYLES))}。")
+    metrics = dict(LAYOUT_STYLES[style_name])
+    layout_type = metrics.get("type", "SIDE_COLUMN")
+    if layout_type == "SIDE_COLUMN":
+        # A legend needs a dedicated column.  Other surrounds share the map frame and do not
+        # reduce its width, preserving the previous contract for elements without LEGEND.
+        metrics["side_band"] = metrics["side_band"] if "LEGEND" in elements else 0.0
+        metrics["bottom_band"] = 0.0
+    elif layout_type == "BOTTOM_PANEL":
+        metrics["side_band"] = 0.0
+        metrics["bottom_band"] = metrics.get("bottom_band", 34.0) if elements else 0.0
+    else:  # INSET
+        metrics["side_band"] = 0.0
+        metrics["bottom_band"] = 0.0
+    return style_name, metrics
+
+
+def _add_title(arcpy, layout, text, width, height, band_width, metrics, subtitle=None):
     """arcpy.mp has no createTextElement; the verified 3.5.2 path is the CIM definition."""
     definition = layout.getDefinition("V3")
     graphic = arcpy.cim.CIMParagraphTextGraphic()
     graphic.text = text
     symbol = arcpy.cim.CIMTextSymbol()
     symbol.fontFamilyName = "微软雅黑"
-    symbol.fontSize = 20
-    symbol.bold = True
-    symbol.horizontalAlignment = "Center"
+    # CIMTextSymbol uses ``height`` (points), not the dynamic ``fontSize`` attribute.
+    # Keep long Chinese titles inside the title band while retaining a visible hierarchy.
+    # Approximate one CJK glyph by one em and convert the available millimetres to points;
+    # this keeps long titles readable without letting them run beyond the map column.
+    fit_size = band_width * 2.3 / max(len(text), 8)
+    symbol.height = min(metrics["title_size"], max(12.0, fit_size))
+    symbol.fontStyleName = "Bold"
+    alignment = getattr(arcpy.cim, "HorizontalAlignment", None)
+    symbol.horizontalAlignment = getattr(alignment, "Center", "Center")
     # 颜色必须写进 values：red=/green=/blue= 关键字会被静默忽略，
     # 现在的黑色只是 values 未设置时的默认值碰巧撞对的。
     title_color = arcpy.cim.CIMRGBColor()
     title_color.values = [0, 0, 0, 100]
     symbol.color = title_color
-    graphic.symbol = symbol
-    graphic.shape = _rect(arcpy, MARGIN, height - MARGIN - TITLE_BAND, band_width, TITLE_BAND - 4.0)
+    # A graphic stores a CIMSymbolReference.  Assigning CIMTextSymbol directly is silently
+    # discarded by Pro when the project is saved, leaving the default tiny left-aligned title.
+    symbol_reference = arcpy.cim.CIMSymbolReference()
+    symbol_reference.symbol = symbol
+    graphic.symbol = symbol_reference
+
+    margin = metrics["margin"]
+    title_band = metrics["title_band"]
+
+    if subtitle:
+        title_h = max(6.0, (title_band - 4.0) * 0.58)
+        sub_h = max(4.0, (title_band - 4.0) * 0.38)
+        graphic.shape = _rect(arcpy, margin, height - margin - title_band + sub_h, band_width, title_h)
+    else:
+        graphic.shape = _rect(arcpy, margin, height - margin - title_band,
+                               band_width, max(6.0, title_band - 4.0))
+
     element = arcpy.cim.CIMGraphicElement()
     element.name = "图名"
     element.graphic = graphic
     definition.elements.append(element)
+
+    if subtitle:
+        sub_graphic = arcpy.cim.CIMParagraphTextGraphic()
+        sub_graphic.text = subtitle
+        sub_symbol = arcpy.cim.CIMTextSymbol()
+        sub_symbol.fontFamilyName = "微软雅黑"
+        sub_symbol.height = max(8.0, min(metrics["title_size"] * 0.45, 11.0))
+        sub_symbol.fontStyleName = "Regular"
+        sub_symbol.horizontalAlignment = getattr(alignment, "Center", "Center")
+        sub_color = arcpy.cim.CIMRGBColor()
+        sub_color.values = [80, 80, 80, 100]
+        sub_symbol.color = sub_color
+        sub_ref = arcpy.cim.CIMSymbolReference()
+        sub_ref.symbol = sub_symbol
+        sub_graphic.symbol = sub_ref
+        sub_graphic.shape = _rect(arcpy, margin, height - margin - title_band,
+                                  band_width, max(4.0, (title_band - 4.0) * 0.38))
+        sub_element = arcpy.cim.CIMGraphicElement()
+        sub_element.name = "副标题"
+        sub_element.graphic = sub_graphic
+        definition.elements.append(sub_element)
+
     layout.setDefinition(definition)
 
 
 def _fill_layout(arcpy, project_path, arguments, prepared, extent, reference, width, height,
-                 elements, plans, label_plans):
+                 elements, plans, label_plans, metrics):
     project = arcpy.mp.ArcGISProject(str(project_path))
     map_object = layout = frame = camera = None
     try:
@@ -181,34 +244,84 @@ def _fill_layout(arcpy, project_path, arguments, prepared, extent, reference, wi
             raise ValueError(f"地图坐标系（{map_object.spatialReference.name}）与图层坐标系"
                              f"（{reference.name}）不一致，出图范围无法定位；{_sr_advice(prepared, '统一坐标系')}。")
         layout = project.createLayout(width, height, "MILLIMETER", name=arguments["title"])
-        side_band = SIDE_BAND if "LEGEND" in elements else 0.0
-        frame = layout.createMapFrame(_rect(arcpy, MARGIN, MARGIN, width - 2 * MARGIN - side_band,
-                                            height - 2 * MARGIN - TITLE_BAND), map_object, name="图幅")
+        margin = metrics["margin"]
+        title_band = metrics["title_band"]
+        side_band = metrics.get("side_band", 0.0)
+        bottom_band = metrics.get("bottom_band", 0.0)
+        inset = metrics["inset"]
+        layout_type = metrics.get("type", "SIDE_COLUMN")
+
+        frame_bottom = margin + bottom_band
+        frame_width = width - 2 * margin - side_band
+        frame_height = height - 2 * margin - title_band - bottom_band
+
+        frame = layout.createMapFrame(_rect(arcpy, margin, frame_bottom, frame_width, frame_height),
+                                      map_object, name="图幅")
         camera = frame.camera
         camera.setExtent(extent)
         frame.camera = camera
         camera = None
         placed = []
-        for name in elements:
-            if name == "LEGEND":
-                geometry = _rect(arcpy, width - side_band + 8.0, MARGIN + 6.0, side_band - 16.0, 84.0)
-            elif name == "NORTH_ARROW":
-                geometry = arcpy.Point(width - MARGIN - 20.0, height - MARGIN - 25.0)
-            else:
-                geometry = arcpy.Point(width - MARGIN - 20.0, height - MARGIN - 70.0)
-            placed.append(layout.createMapSurroundElement(geometry, SURROUND_TYPES[name], frame,
-                                                          name=ELEMENT_LABELS[name]).name)
-        _add_title(arcpy, layout, arguments["title"], width, height, width - 2 * MARGIN - side_band)
+
+        if layout_type == "BOTTOM_PANEL":
+            y_base = margin + 2.0
+            h_avail = max(16.0, bottom_band - 4.0)
+            for name in elements:
+                if name == "NORTH_ARROW":
+                    geometry = _rect(arcpy, margin + 4.0, y_base + max(0.0, (h_avail - 22.0) / 2.0), 22.0, 22.0)
+                elif name in ("SCALE_BAR", "DUAL_SCALE_BAR"):
+                    geometry = _rect(arcpy, margin + 30.0, y_base + 2.0, min(56.0, max(36.0, width * 0.22)), max(12.0, h_avail - 4.0))
+                elif name == "LEGEND":
+                    leg_left = margin + 92.0
+                    leg_w = max(40.0, width - margin - leg_left - 6.0)
+                    geometry = _rect(arcpy, leg_left, y_base, leg_w, h_avail)
+                placed.append(layout.createMapSurroundElement(geometry, SURROUND_TYPES[name], frame,
+                                                              name=ELEMENT_LABELS[name]).name)
+        elif layout_type == "INSET":
+            for name in elements:
+                if name == "NORTH_ARROW":
+                    geometry = _rect(arcpy, width - margin - 26.0 - inset,
+                                     height - margin - title_band - 26.0 - inset, 22.0, 22.0)
+                elif name in ("SCALE_BAR", "DUAL_SCALE_BAR"):
+                    geometry = _rect(arcpy, margin + inset + 4.0, margin + inset + 4.0, 48.0, 16.0)
+                elif name == "LEGEND":
+                    leg_h = min(max(36.0, frame_height * 0.45), 70.0)
+                    geometry = _rect(arcpy, width - margin - 56.0 - inset, margin + inset + 4.0, 52.0, leg_h)
+                placed.append(layout.createMapSurroundElement(geometry, SURROUND_TYPES[name], frame,
+                                                              name=ELEMENT_LABELS[name]).name)
+        else:
+            # SIDE_COLUMN (STANDARD, REPORT, POSTER)
+            content_bottom = margin
+            content_top = height - margin - title_band
+            panel_left = width - side_band + inset if side_band else width - margin - inset
+            panel_width = max(12.0, side_band - 2.0 * inset) if side_band else 24.0
+            for name in elements:
+                if name == "LEGEND":
+                    geometry = _rect(arcpy, panel_left, content_bottom + 28.0, panel_width,
+                                     max(36.0, content_top - content_bottom - 64.0))
+                elif name == "NORTH_ARROW":
+                    geometry = _rect(arcpy, panel_left, content_top - 30.0, panel_width, 24.0)
+                else:
+                    geometry = _rect(arcpy, panel_left, content_bottom + 6.0, panel_width, 18.0)
+                placed.append(layout.createMapSurroundElement(geometry, SURROUND_TYPES[name], frame,
+                                                              name=ELEMENT_LABELS[name]).name)
+
+        _add_title(arcpy, layout, arguments["title"], width, height,
+                   width - 2 * margin - side_band, metrics, subtitle=arguments.get("subtitle"))
         project.save()
-        return {"project": str(project_path), "layout": layout.name, "map": map_object.name, "layers": layers,
-                "page_mm": [width, height], "page_size": arguments.get("page_size", "A4"),
-                "orientation": arguments.get("orientation", "LANDSCAPE"), "elements": placed,
-                "spatial_reference": {"name": reference.name, "wkid": reference.factoryCode},
-                "extent": {"xmin": extent.XMin, "ymin": extent.YMin, "xmax": extent.XMax, "ymax": extent.YMax},
-                "extent_source": "requested" if "extent" in arguments else "data_extent",
-                "symbology": [plan for _, plan in plans],
-                "labels": list(labels_by_dataset.values()),
-                "project_modified": False, "next_step": "用 export_layout 传入本 project 路径与 layout 名称导出图片"}
+        result = {"project": str(project_path), "layout": layout.name, "map": map_object.name, "layers": layers,
+                  "page_mm": [width, height], "page_size": arguments.get("page_size", "A4"),
+                  "orientation": arguments.get("orientation", "LANDSCAPE"), "elements": placed,
+                  "layout_style": arguments.get("layout_style", "STANDARD"),
+                  "spatial_reference": {"name": reference.name, "wkid": reference.factoryCode},
+                  "extent": {"xmin": extent.XMin, "ymin": extent.YMin, "xmax": extent.XMax, "ymax": extent.YMax},
+                  "extent_source": "requested" if "extent" in arguments else "data_extent",
+                  "symbology": [plan for _, plan in plans],
+                  "labels": list(labels_by_dataset.values()),
+                  "project_modified": False, "next_step": "用 export_layout 传入本 project 路径与 layout 名称导出图片"}
+        if "subtitle" in arguments:
+            result["subtitle"] = arguments["subtitle"]
+        return result
     finally:
         del camera, frame, layout, map_object, project
 
@@ -247,6 +360,7 @@ def _build_layout(arcpy, arguments, folder):
     elements = arguments.get("elements")
     if elements is None:
         elements = list(DEFAULT_ELEMENTS)
+    layout_style, metrics = _layout_metrics(arguments, elements)
     width, height = _page(arguments)
     # Everything that can be refused happens before the template is copied, so a rejected call leaves no stray project.
     staged = _staged(_reserve(project_path), uuid.uuid4().hex[:8])
@@ -254,7 +368,8 @@ def _build_layout(arcpy, arguments, folder):
     result, published = None, False
     try:
         result = _fill_layout(arcpy, staged, arguments, prepared, extent, reference, width, height,
-                              elements, plans, label_plans)
+                              elements, plans, label_plans, metrics)
+        result["layout_style"] = layout_style
         os.replace(staged, project_path)
         published = True
         result["project"] = str(project_path)

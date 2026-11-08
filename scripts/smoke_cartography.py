@@ -127,12 +127,14 @@ def main():
 
     second = runtime.call("build_layout", {"title": "A3 竖排", "layers": [polygons], "output_name": "dual",
                                            "page_size": "A3", "orientation": "PORTRAIT",
+                                           "layout_style": "POSTER",
                                            "elements": ["LEGEND", "DUAL_SCALE_BAR"],
                                            "extent": {"xmin": 112.2, "ymin": 25.2, "xmax": 113.8, "ymax": 25.9}}, run)
     second_data = second.get("data") or {}
     second_aprx = run / "cartography" / "dual.aprx"
     checks["dual_scale_bar_portrait_extent"] = (second.get("ok") is True and second_aprx.is_file()
                                               and second_data.get("page_mm") == [297.0, 420.0]
+                                              and second_data.get("layout_style") == "POSTER"
                                               and second_data.get("elements") == ["图例", "双比例尺"]
                                               and second_data.get("extent_source") == "requested")
     tiff = runtime.call("export_layout", {"project": str(second_aprx), "layout": "A3 竖排", "output_name": "sheet",

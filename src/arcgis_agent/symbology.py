@@ -32,7 +32,7 @@ TEXT_FIELD_TYPES = frozenset({"Text", "String"})
 # 唯一值用深灰线强调类别边界。
 OUTLINES = {"CLASS_BREAKS": ("#FFFFFF", 0.2), "UNIQUE_VALUE": ("#666666", 0.4)}
 
-# SEQUENTIAL 按 3/5/7 三档分别存色值，不做等距抽样：ColorBrewer 的分档色是专门调过的，
+# SEQUENTIAL 按 3/5/7 三档分别存色值，不做等距抽样：ColorBrewer 与现代科学色板的分档色是专门调过的，
 # naive 抽样会出现相邻两级几乎同色。
 SEQUENTIAL = {
     "BLUES": {3: ("#deebf7", "#9ecae1", "#3182bd"),
@@ -48,6 +48,40 @@ SEQUENTIAL = {
     "RD_BU": {3: ("#67a9cf", "#f7f7f7", "#ef8a62"),
               5: ("#0571b0", "#92c5de", "#f7f7f7", "#f4a582", "#ca0020"),
               7: ("#2166ac", "#67a9cf", "#d1e5f0", "#f7f7f7", "#fddbc7", "#ef8a62", "#b2182b")},
+    # 现代感知均匀科学色板（Viridis/Magma/Plasma）：GIS 制图界与现代数据科学公认高审美标杆
+    "VIRIDIS": {3: ("#440154", "#21918c", "#fde725"),
+                5: ("#440154", "#3b528b", "#21918c", "#5ec962", "#fde725"),
+                7: ("#440154", "#443983", "#31688e", "#21918c", "#35b779", "#8fd744", "#fde725")},
+    "MAGMA": {3: ("#000004", "#b63679", "#fcfdbf"),
+              5: ("#000004", "#51127c", "#b63679", "#fb8861", "#fcfdbf"),
+              7: ("#000004", "#2c115f", "#721f81", "#b63679", "#f1605d", "#feb078", "#fcfdbf")},
+    "PLASMA": {3: ("#0d0887", "#cc4778", "#f0f921"),
+               5: ("#0d0887", "#7e03a8", "#cc4778", "#f89540", "#f0f921"),
+               7: ("#0d0887", "#4c02a1", "#7e03a8", "#b52f8c", "#de6065", "#f89540", "#f0f921")},
+    # 经典暖色阶（黄-橙-红），适合人口、密度、经济与热力专题图
+    "WARM": {3: ("#ffeda0", "#feb24c", "#f03b20"),
+             5: ("#ffffb2", "#fecc5c", "#fd8d3c", "#f03b20", "#bd0026"),
+             7: ("#ffffb2", "#fed976", "#feb24c", "#fd8d3c", "#fc4e2a", "#e31a1c", "#b10026")},
+    # 雅致现代青蓝（浅青-薄荷-深海蓝），适合现代水文、生态与科技感制图
+    "TEAL": {3: ("#e0f3f8", "#67a9cf", "#02818a"),
+             5: ("#f0f9e8", "#bae4bc", "#7bccc4", "#43a2ca", "#0868ac"),
+             7: ("#f0f9e8", "#ccebc5", "#a8ddb5", "#7bccc4", "#4eb3d3", "#2b8cbe", "#08589e")},
+    # 典雅紫调（薰衣草紫-紫晶-皇家深紫），适合高品位文化、人居、品质专题图
+    "PURPLES": {3: ("#efedf5", "#bcbddc", "#756bb1"),
+                5: ("#f2f0f7", "#cbc9e2", "#9e9ac8", "#756bb1", "#54278f"),
+                7: ("#f2f0f7", "#dadaeb", "#bcbddc", "#9e9ac8", "#807dba", "#6a51a3", "#4a1486")},
+    # 暖橙琥珀（杏黄-暖橙-焦赭），温暖自然
+    "ORANGES": {3: ("#fee6ce", "#fdae6b", "#e6550d"),
+                5: ("#feedde", "#fdbe85", "#fd8d3c", "#e6550d", "#a63603"),
+                7: ("#feedde", "#fdd0a2", "#fdae6b", "#fd8d3c", "#f16913", "#d94801", "#8c2d04")},
+    # 经典多色相光谱发散色阶（红-橙-黄-浅绿-蓝），适合气温、气候与多档位对比
+    "SPECTRAL": {3: ("#fc8d59", "#ffffbf", "#99d594"),
+                 5: ("#d7191c", "#fdae61", "#ffffbf", "#abdda4", "#2b83ba"),
+                 7: ("#d53e4f", "#fc8d59", "#fee08b", "#ffffbf", "#e6f598", "#99d594", "#3288bd")},
+    # 典雅玫瑰-青绿双向色阶（玫红-中性浅灰-翠青），政经金融与现代出版物顶配
+    "TEAL_ROSE": {3: ("#e9a3c9", "#f7f7f7", "#a1d76a"),
+                  5: ("#d01c8b", "#f1b6da", "#f7f7f7", "#b8e186", "#4dac26"),
+                  7: ("#c51b7d", "#de77ae", "#f1b6da", "#f7f7f7", "#e6f5d0", "#b8e186", "#4dac26")},
 }
 
 # 分级矢量只能落在预设色板真正备有色值的档数上。这里对所有 SEQUENTIAL 色板的档数求交集，
@@ -61,11 +95,31 @@ MIN_CLASSES, MAX_CLASSES = CLASS_COUNTS[0], CLASS_COUNTS[-1]
 TERRAIN = {
     "ELEVATION": {7: ("#1a6b3c", "#5a9c4f", "#a3b18a", "#e3d49a", "#d19a63", "#a4674a", "#d9d6cf")},
     "HILLSHADE_GRAY": {7: ("#ffffff", "#e0e0e0", "#c2c2c2", "#a6a6a6", "#8a8a8a", "#6e6e6e", "#4d4d4d")},
+    # Natural Earth 现代地形分层设色（翠绿河谷-暖赭丘陵-山脊棕褐-雪线白）
+    "TERRAIN_MODERN": {7: ("#2d6a4f", "#52b788", "#b7e4c7", "#f3c68f", "#d48c46", "#9d5c34", "#f8f9fa")},
+    # 海洋水深专题色带（浅海冰青-湛蓝-深海藏青-渊海幽蓝）
+    "OCEAN": {7: ("#e0f3f8", "#abd9e9", "#74add1", "#4575b4", "#313695", "#1c2260", "#0b0e36")},
 }
 
 # ColorBrewer Paired 重排为饱和色优先，保证类别少时也高度可辨。
 CATEGORY10 = ("#1f78b4", "#e31a1c", "#33a02c", "#ff7f00", "#6a3d9a",
               "#a6cee3", "#fb9a99", "#b2df8a", "#fdbf6f", "#cab2d6")
+
+# 莫兰迪高级灰设计色系（低饱和、柔和、典雅，高端学术与规划报告首选，绝不刺眼）
+MORANDI = ("#7b8b6f", "#84919e", "#a89f91", "#bda599", "#94a2a9",
+           "#c4b79b", "#9f838c", "#879b8f", "#aa8e85", "#708090")
+
+# 北欧极简冷暖调设计色系（深青、陶土、鼠尾草绿、柔金、岩灰，清爽高阶）
+NORDIC = ("#2b4c5f", "#c27c62", "#63897d", "#d1a153", "#5c6b73",
+          "#9b6b7a", "#4a7c82", "#bfa48f", "#738b71", "#3d5a80")
+
+# 柔和马卡龙清爽色系（明快温润，适合展示型与公共科普地图）
+PASTEL = ("#8dd3c7", "#ffffb3", "#bebada", "#fb8072", "#80b1d3",
+          "#fdb462", "#b3de69", "#fccde5", "#d9d9d9", "#bc80bd")
+
+# 现代平铺 UI 高辨识度色系（鲜明生动、区分度极佳）
+VIBRANT = ("#0077b6", "#e63946", "#2a9d8f", "#f4a261", "#6a4c93",
+           "#e76f51", "#457b9d", "#588157", "#d90429", "#118ab2")
 
 # 语义色的关键词组顺序是有效载荷，不是装饰：匹配按组顺序取首个命中，
 # 所以「水浇地」「湿地」这类含「水」的地类必须排在水体之前，否则会静默错配。
@@ -84,11 +138,33 @@ BASE = {"fill": "#DCE6F1", "outline": "#5B7A99", "outline_width": 0.7,
         "line": "#4D4D4D", "line_width": 1.2,
         "point": "#3B6E8F", "point_size": 6.0, "point_outline": "#FFFFFF"}
 
+# 科技暗色底图基准
+BASE_DARK = {"fill": "#1E222A", "outline": "#4C566A", "outline_width": 0.6,
+             "line": "#88C0D0", "line_width": 1.2,
+             "point": "#88C0D0", "point_size": 6.0, "point_outline": "#ECEFF4"}
+
+# 画廊极简中性灰底图基准
+BASE_GRAY = {"fill": "#F4F5F7", "outline": "#98A2B3", "outline_width": 0.6,
+             "line": "#344054", "line_width": 1.0,
+             "point": "#475467", "point_size": 5.5, "point_outline": "#FFFFFF"}
+
+# 典雅复古暖沙/羊皮纸底图基准
+BASE_WARM = {"fill": "#F7F4EE", "outline": "#C8BDB0", "outline_width": 0.6,
+             "line": "#5C5248", "line_width": 1.0,
+             "point": "#8C6D53", "point_size": 5.5, "point_outline": "#FFFFFF"}
+
 PALETTES = {name: {"kind": "SEQUENTIAL", "steps": steps} for name, steps in SEQUENTIAL.items()}
 PALETTES.update({name: {"kind": "TERRAIN", "steps": steps} for name, steps in TERRAIN.items()})
 PALETTES["CATEGORY10"] = {"kind": "QUALITATIVE", "colors": CATEGORY10}
+PALETTES["MORANDI"] = {"kind": "QUALITATIVE", "colors": MORANDI}
+PALETTES["NORDIC"] = {"kind": "QUALITATIVE", "colors": NORDIC}
+PALETTES["PASTEL"] = {"kind": "QUALITATIVE", "colors": PASTEL}
+PALETTES["VIBRANT"] = {"kind": "QUALITATIVE", "colors": VIBRANT}
 PALETTES["LAND_USE"] = {"kind": "QUALITATIVE", "semantic": LAND_USE_SEMANTIC, "fallback": "#9E9E9E"}
 PALETTES["BASE"] = dict(BASE, kind="BASE")
+PALETTES["BASE_DARK"] = dict(BASE_DARK, kind="BASE")
+PALETTES["BASE_GRAY"] = dict(BASE_GRAY, kind="BASE")
+PALETTES["BASE_WARM"] = dict(BASE_WARM, kind="BASE")
 # 按名字重排一次：字典插入顺序取决于上面几个 update 的先后，重排后错误消息与 enum 顺序才稳定。
 PALETTES = {name: PALETTES[name] for name in sorted(PALETTES)}
 PALETTE_NAMES = sorted(PALETTES)
@@ -455,7 +531,7 @@ def plan_style(arcpy, style, dataset, desc):
         plan["colors"] = list(ramp_colors(palette))
         return plan
     if kind == "SIMPLE":
-        base = PALETTES["BASE"]
+        base = PALETTES[palette]
         geometry = _geometry(desc)
         plan["geometry"] = geometry
         if geometry == "Polygon":

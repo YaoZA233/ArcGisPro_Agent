@@ -601,25 +601,28 @@ def main():
     glyph_left = min(inked_columns, default=None)
     glyph_right = max(inked_columns, default=None)
     title_band_150 = band_counts(cb["png"], MEASURE_DPI)
-    # 图名的 CIM 往返：把图名带的横线（图幅上沿）排除后再量字形行段，并读回元素看符号有没有存下来。
-    # run2 实测：保存并重开后 graphic.symbol 是 None —— _add_title 挂上去的整个 CIMTextSymbol
-    # （20pt / 粗体 / 居中 / .values 黑色）在序列化时被整块丢弃，Pro 用自己的默认文本符号渲染，
-    # 于是图上看到的是"约 10pt、靠左、默认黑"的图名。黑色仍然是碰巧的默认值，Task 8 的
-    # .values 修正并没有真正落到渲染路径上；这是本轮暴露出的缺陷，交控制器决定修复轮次。
+    # 图名的 CIM 往返：把图名带的横线（图幅上沿）排除后再量字形行段，并读回元素确认
+    # CIMSymbolReference/CIMTextSymbol 结构被保存。旧实现把 CIMTextSymbol 直接挂到 graphic，
+    # Pro 会静默丢弃它，导致标题回退成约 10pt 的左对齐默认字；当前实现使用可持久化结构。
     title_copy = readback / "title.aprx"
     shutil.copy2(cb["aprx"], title_copy)
     title_project = arcpy.mp.ArcGISProject(str(title_copy))
     title_elements = [item for item in title_project.listLayouts()[0].getDefinition("V3").elements
                       if type(item).__name__ == "CIMGraphicElement"]
     title_graphic = getattr(title_elements[0], "graphic", None) if title_elements else None
-    title_symbol = getattr(title_graphic, "symbol", None) if title_graphic is not None else None
+    title_symbol_reference = getattr(title_graphic, "symbol", None) if title_graphic is not None else None
+    title_symbol = getattr(title_symbol_reference, "symbol", None) if title_symbol_reference is not None else None
     del title_project
     measures["title_symbol_round_trip"] = {
         "graphic_element_count": len(title_elements),
         "graphic_type": type(title_graphic).__name__ if title_graphic is not None else None,
         "text_survived": getattr(title_graphic, "text", None),
-        "symbol_is_none": title_symbol is None,
-        "symbol_type": type(title_symbol).__name__ if title_symbol is not None else None}
+        "symbol_reference_is_none": title_symbol_reference is None,
+        "symbol_reference_type": type(title_symbol_reference).__name__ if title_symbol_reference is not None else None,
+        "text_symbol_is_none": title_symbol is None,
+        "text_symbol_type": type(title_symbol).__name__ if title_symbol is not None else None,
+        "text_symbol_height": getattr(title_symbol, "height", None),
+        "text_symbol_alignment": str(getattr(title_symbol, "horizontalAlignment", None))}
     measures["title_band"] = {"dpi": title_dpi, "export_ok": title_export.get("ok"),
                               "band_px": [title_crop.width, title_crop.height],
                               "rule_rows_excluded": line_rows,
@@ -643,12 +646,11 @@ def main():
     checks["title_color_still_black_after_the_values_fix"] = (
         title_export.get("ok") is True and title_black > 1000 and glyph_mode is not None
         and max(glyph_mode[0]) < 40)
-    # 但这份黑色是默认值碰巧撞对的：_add_title 的文本符号整块没落盘，20pt / 粗体 / 居中都没生效。
-    # 这条断言把"已知缺陷"钉在实测值上 —— 谁以后修好了符号持久化，这条就翻红，逼冒烟同步改期望。
-    checks["title_symbol_formatting_is_a_recorded_defect"] = (
-        measures["title_symbol_round_trip"]["symbol_is_none"] is True
-        and measures["title_band"]["glyph_implied_pt"] < 15
-        and not measures["title_band"]["glyph_centered"])
+    checks["title_symbol_round_trip_persists_formatting"] = (
+        title_export.get("ok") is True
+        and measures["title_symbol_round_trip"]["symbol_reference_is_none"] is False
+        and measures["title_symbol_round_trip"]["text_symbol_is_none"] is False
+        and measures["title_symbol_round_trip"]["text_symbol_height"] == 20.0)
 
     # ---------------- 8. 只读性 ----------------
     before = digest(cb["aprx"])
