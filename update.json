@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "product": "ArcGISAgent",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "min_arcgis_pro": "3.5.2",
   "release_url": "https://github.com/YaoZA233/ArcGisPro_Agent/releases/latest",
   "package_url": "https://github.com/YaoZA233/ArcGisPro_Agent/releases/latest",
