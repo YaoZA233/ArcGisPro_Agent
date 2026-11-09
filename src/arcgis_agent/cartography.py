@@ -171,11 +171,8 @@ def _add_title(arcpy, layout, text, width, height, band_width, metrics, subtitle
     title_color = arcpy.cim.CIMRGBColor()
     title_color.values = [0, 0, 0, 100]
     symbol.color = title_color
-    # A graphic stores a CIMSymbolReference.  Assigning CIMTextSymbol directly is silently
-    # discarded by Pro when the project is saved, leaving the default tiny left-aligned title.
-    symbol_reference = arcpy.cim.CIMSymbolReference()
-    symbol_reference.symbol = symbol
-    graphic.symbol = symbol_reference
+    # A fresh CIMSymbolReference around this text symbol crashes Pro 3.5.2 during Layout.export.
+    graphic.symbol = symbol
 
     margin = metrics["margin"]
     title_band = metrics["title_band"]
@@ -204,9 +201,7 @@ def _add_title(arcpy, layout, text, width, height, band_width, metrics, subtitle
         sub_color = arcpy.cim.CIMRGBColor()
         sub_color.values = [80, 80, 80, 100]
         sub_symbol.color = sub_color
-        sub_ref = arcpy.cim.CIMSymbolReference()
-        sub_ref.symbol = sub_symbol
-        sub_graphic.symbol = sub_ref
+        sub_graphic.symbol = sub_symbol
         sub_graphic.shape = _rect(arcpy, margin, height - margin - title_band,
                                   band_width, max(4.0, (title_band - 4.0) * 0.38))
         sub_element = arcpy.cim.CIMGraphicElement()
@@ -400,6 +395,7 @@ def _export_layout(arcpy, arguments, folder):
             layout = layouts[0]
         else:
             raise ValueError(f"工程里有 {len(layouts)} 个布局，必须指定 layout 名称：{names}。")
+        _unwrap_text_symbol_references(layout)
         export_format = arcpy.mp.CreateExportFormat(arguments["format"], str(_reserve(staged)))
         export_format.resolution = arguments.get("dpi", 300)
         produced = layout.export(export_format)
@@ -419,6 +415,26 @@ def _export_layout(arcpy, arguments, folder):
         if not published:
             staged.unlink(missing_ok=True)
             output.unlink(missing_ok=True)
+
+
+def _unwrap_text_symbol_references(layout):
+    """Normalize projects created by the broken 0.2.0 CIM wrapper before exporting, without saving them."""
+    definition = layout.getDefinition("V3")
+    changed = False
+    for element in definition.elements:
+        graphic = getattr(element, "graphic", None)
+        if graphic is None or not hasattr(graphic, "text"):
+            continue
+        reference = getattr(graphic, "symbol", None)
+        if type(reference).__name__ != "CIMSymbolReference":
+            continue
+        symbol = getattr(reference, "symbol", None)
+        if type(symbol).__name__ != "CIMTextSymbol":
+            continue
+        graphic.symbol = symbol
+        changed = True
+    if changed:
+        layout.setDefinition(definition)
 
 
 def execute_cartography(name, arguments, folder, arcpy):

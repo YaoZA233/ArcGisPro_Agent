@@ -95,7 +95,8 @@ def main():
     aprx = run / "cartography" / "hunan_map.aprx"
     checks, measures = {}, {}
 
-    build = runtime.call("build_layout", {"title": TITLE, "layers": [polygons], "output_name": "hunan_map"}, run)
+    build = runtime.call("build_layout", {"title": TITLE, "subtitle": "数据源：合成测试数据 | 坐标系：WGS 1984",
+                                          "layers": [polygons], "output_name": "hunan_map"}, run)
     data = build.get("data") or {}
     checks["build_layout"] = (build.get("ok") is True and aprx.is_file() and data.get("layout") == TITLE
                               and data.get("layers") == ["regions"] and data.get("page_mm") == [297.0, 210.0]

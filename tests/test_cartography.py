@@ -942,13 +942,42 @@ class SymbologyWiringTests(unittest.TestCase):
         self.assertTrue(made, "图名必须构造 CIMRGBColor")
         self.assertEqual(made[-1].values, [0, 0, 0, 100])
 
-    def test_title_uses_persistable_symbol_reference_and_real_text_properties(self):
+    def test_title_uses_export_safe_text_symbol_and_real_text_properties(self):
         self.build(base(layout_style="POSTER"))
         graphic = StubProject.instances[0].layouts[0].placed_title.graphic
-        self.assertIsInstance(graphic.symbol, StubCim.CIMSymbolReference)
-        self.assertEqual(graphic.symbol.symbol.height, 30.0)
-        self.assertEqual(graphic.symbol.symbol.fontStyleName, "Bold")
-        self.assertEqual(graphic.symbol.symbol.horizontalAlignment, "Center")
+        self.assertIsInstance(graphic.symbol, StubCim.CIMTextSymbol)
+        self.assertEqual(graphic.symbol.height, 30.0)
+        self.assertEqual(graphic.symbol.fontStyleName, "Bold")
+        self.assertEqual(graphic.symbol.horizontalAlignment, "Center")
+
+    def test_export_unwraps_legacy_text_symbol_reference_without_saving_project(self):
+        symbol = StubCim.CIMTextSymbol()
+        reference = StubCim.CIMSymbolReference()
+        reference.symbol = symbol
+        graphic = type("TextGraphic", (), {"text": "标题", "symbol": reference})()
+        element = type("GraphicElement", (), {"graphic": graphic})()
+        definition = StubDefinition()
+        definition.elements = [element]
+        source = self.root / "legacy.aprx"
+        source.write_text("project", encoding="utf-8")
+
+        class LegacyLayout(StubLayout):
+            def getDefinition(self, version):
+                self.version = version
+                return definition
+
+            def setDefinition(self, value):
+                self.normalized = value
+
+        project = StubProject(str(source))
+        layout = LegacyLayout("标题")
+        project.layouts.append(layout)
+        arcpy = StubArcpy(self.install, project_factory=lambda path: project)
+        cartography._export_layout(arcpy, {"project": str(source), "output_name": "sheet",
+                                           "format": "PNG"}, self.root / "run")
+        self.assertIs(graphic.symbol, symbol)
+        self.assertEqual(layout.version, "V3")
+        self.assertFalse(project.saved)
 
     def test_bottom_panel_layout_places_surrounds_in_footer(self):
         result, _ = self.build(base(layout_style="BOTTOM_PANEL"))

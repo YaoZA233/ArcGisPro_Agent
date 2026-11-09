@@ -1,9 +1,9 @@
 {
   "schema": 1,
   "product": "ArcGISAgent",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "min_arcgis_pro": "3.5.2",
   "release_url": "https://github.com/YaoZA233/ArcGisPro_Agent/releases/latest",
   "package_url": "https://github.com/YaoZA233/ArcGisPro_Agent/releases/latest",
-  "notes": "当前版本已是最新版本。"
+  "notes": "修复布局导出崩溃；插件重装后保留 API Key、聊天记录与用户数据；修复版本提示和中文显示。"
 }

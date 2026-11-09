@@ -202,6 +202,24 @@ class ChatTests(unittest.TestCase):
         self.assertEqual(session.max_steps, 5)
         self.assert_closed_calls(session.history)
 
+    def test_create_session_uses_persistent_data_home_when_configured(self):
+        data_home = self.root / "persistent-user-data"
+        settings = Settings(workspace=self.root / "assembly-cache" / "workspace")
+        runtime = FailingRuntime()
+        with patch.dict("os.environ", {"ARCGIS_AGENT_DATA_HOME": str(data_home)}), \
+                patch("arcgis_agent.interfaces.ProviderStore", autospec=True) as providers, \
+                patch("arcgis_agent.interfaces.discover_python", return_value=self.root / "python.exe"), \
+                patch("arcgis_agent.interfaces.ArcPyRuntime", return_value=runtime):
+            providers.return_value.active = "deepseek"
+            providers.return_value.options = {"deepseek": {}}
+            providers.return_value.client.return_value = FakeClient([])
+            session = create_session(settings)
+
+        expected_home = data_home.resolve()
+        expected_workspace = expected_home / "workspace"
+        self.assertEqual(session.workspace, expected_workspace)
+        self.assertEqual(providers.call_args.args[:2], (expected_home, expected_workspace))
+
     def test_chat_default_allows_sixteen_successful_steps_but_not_seventeen(self):
         for requested, status in ((16, "completed"), (17, "step_limit")):
             with self.subTest(requested=requested):

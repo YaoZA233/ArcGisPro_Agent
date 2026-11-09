@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import getpass
 import json
+import os
 import re
 import sys
 import threading
@@ -22,12 +23,19 @@ from .providers import PRESETS, REASONING, ProviderStore, preset_profile, save_k
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def data_home() -> Path:
+    configured = os.environ.get("ARCGIS_AGENT_DATA_HOME")
+    return Path(configured).expanduser().resolve() if configured else ROOT
+
+
 def create_session(settings: Settings) -> ChatSession:
-    store = ProviderStore(ROOT, settings.workspace, settings)
+    home = data_home()
+    workspace = home / "workspace" if os.environ.get("ARCGIS_AGENT_DATA_HOME") else settings.workspace
+    store = ProviderStore(home, workspace, settings)
     client = store.client(settings.model_timeout_seconds)
     if store.active not in store.options:
         client.configure({"max_tokens": settings.max_tokens, **({"thinking": settings.thinking} if store.active == "deepseek" else {})})
-    saved = settings.workspace / "ui-options.json"
+    saved = workspace / "ui-options.json"
     if saved.is_file() and store.active not in store.options:
         try:
             options = json.loads(saved.read_text(encoding="utf-8"))
@@ -35,10 +43,10 @@ def create_session(settings: Settings) -> ChatSession:
                 client.configure(options)
         except (ValueError, TypeError):
             pass
-    memory = MemoryStore(settings.workspace / "memory.json")
+    memory = MemoryStore(workspace / "memory.json")
     runtime = ArcPyRuntime(discover_python(settings.python), settings.timeout_seconds, settings.skills_dir,
                            data_roots=settings.data_roots, memory=memory)
-    session = ChatSession(client, runtime, settings.workspace, settings.max_steps, memory=memory,
+    session = ChatSession(client, runtime, workspace, settings.max_steps, memory=memory,
                           failure_budget=settings.failure_budget)
     session.providers = store
     return session
@@ -65,8 +73,9 @@ def setup_key(provider: str = "deepseek") -> int:
     from .providers import validate_profile
     validate_profile(preset_profile("custom", provider))
     key = getpass.getpass("请输入 API Key（输入不会显示）: ").strip()
-    destination = ROOT / ".env.local"
-    save_key(ROOT, provider, key)
+    root = data_home()
+    destination = root / ".env.local"
+    save_key(root, provider, key)
     print(f"密钥已保存在 {destination}；不会显示密钥。")
     return 0
 
@@ -326,7 +335,7 @@ def rpc(settings: Settings) -> int:
         client = session.client
         return {"model": getattr(client, "model", settings.model), "thinking": getattr(client, "thinking", settings.thinking),
                 "max_tokens": getattr(client, "max_tokens", settings.max_tokens), "models": [getattr(client, "model", settings.model)],
-                "image_detail": getattr(client, "image_detail", "auto"), "workspace": str(settings.workspace),
+                "image_detail": getattr(client, "image_detail", "auto"), "workspace": str(session.workspace),
                 "session_id": session.session_id, "approval_mode": settings.approval_mode,
                 **provider_state(session)}
 
@@ -398,7 +407,7 @@ def rpc(settings: Settings) -> int:
                 session.client.configure(options)
                 if hasattr(session, "providers"):
                     session.providers.save_options(options)
-                saved = settings.workspace / "ui-options.json"
+                saved = session.workspace / "ui-options.json"
                 saved.parent.mkdir(parents=True, exist_ok=True)
                 saved.write_text(json.dumps({"provider": getattr(getattr(session, "providers", None), "active", "deepseek"), **{key: getattr(session.client, key) for key in ("model", "thinking", "max_tokens", "image_detail")}}), encoding="utf-8")
                 emit({"type": "configured", **state()})

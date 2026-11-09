@@ -1,11 +1,34 @@
 # 更新日志
 
+## 0.2.1 - 2026-11-09
+
+- 修复 ArcGIS Pro 3.5.2 布局导出崩溃，以及更新提示未正确识别已安装版本的问题。
+- 修复插件 Ribbon 中文乱码；Pro 面板的 API Key、连接配置、聊天记录、长期记忆和任务文件改存到 `%LOCALAPPDATA%\ArcGISAgent`，重装插件后继续保留。
+- 插件重装数据迁移：101 个旧文件逐个 SHA-256 校验通过，原 AssemblyCache 文件保留。
+- 验证：`scripts/test.ps1` **478 项通过**；Release 插件构建成功，0 警告、0 错误。
+
+### 持久化实现细节
+
+- Pro 面板将 API Key 与 workspace 持久保存在 `%LOCALAPPDATA%\ArcGISAgent`，不再写入可被插件安装替换的 AssemblyCache；Python 代码仍从插件包加载。CLI 和工具箱继续使用现有仓库路径。
+- 将当前 AssemblyCache 中的 101 个文件（1,497,516 字节）迁移到持久目录，逐文件 SHA-256 校验通过，原文件保留。
+- 影响模块：`AgentView.xaml.cs`、`interfaces.py`、中英文 README。
+- 验证：本机数据复制后 101/101 SHA-256 一致。
+- 限制：用户数据仍是本机普通文件；手动删除 `%LOCALAPPDATA%\ArcGISAgent` 会删除这份持久数据。
+
 ## 2026-11-09：修复已更新版本仍提示更新
 
 - 更新检查读取 24 小时缓存时，现在会再次比较缓存版本与当前插件程序集版本；缓存版本不再较新时会清除旧提示并重新检查清单，避免安装 0.2.0 后仍提示更新到 0.2.0。
 - 影响模块：`addin/ArcGISAgent/UpdateService.cs`。
 - 验证：`scripts/build-addin.ps1` Release 构建及 `.esriAddInX` 打包通过（0 警告、0 错误）；当前未能读取 ArcGIS Pro 实例中实际加载的程序集版本。
 - 限制：当前环境无法读取用户 ArcGIS Pro 实际加载的插件程序集版本，也无法从 GitHub 获取线上清单（连接被重置）。
+
+## 2026-11-09：修复中文图名导致布局导出崩溃
+
+- 生成标题和副标题时直接赋值 `CIMTextSymbol`，避免用新建的 `CIMSymbolReference` 包装文本符号；ArcGIS Pro 3.5.2 在 `Layout.export` 遇到该包装会以 `-1` 退出。
+- 导出旧工程时，在内存中解开受影响的文本符号引用后再导出，不保存或改写 `.aprx`。
+- 影响模块：`src/arcgis_agent/cartography.py`、`tests/test_cartography.py`、`scripts/smoke_cartography.py`。
+- 验证：Pro 3.5.2 逐项 CIM 对照复现了直接赋值可导出、`CIMSymbolReference` 包装会崩溃；`scripts/test.ps1` **477 项通过**；`scripts/smoke_cartography.py` **29 项通过**（含中文标题/副标题，多种格式导出）；原失败工程成功导出 302,528 字节 PNG，源 `.aprx` SHA-256 不变。
+- 限制：旧工程导出不会把标题符号格式写回工程；如果用户需要重新编辑并保留布局设置，应重新运行 `build_layout`。
 
 ## 2026-11-09：修复插件 Ribbon 中文乱码
 

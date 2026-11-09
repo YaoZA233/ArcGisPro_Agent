@@ -70,6 +70,13 @@ public partial class AgentView : UserControl
         throw new InvalidOperationException("找不到工程路径。请设置 ARCGIS_AGENT_HOME 后重新打开面板。");
     }
 
+    private static string FindDataHome()
+    {
+        string path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ArcGISAgent");
+        Directory.CreateDirectory(path);
+        return path;
+    }
+
     private static string FindProPython()
     {
         // Explicit configuration must take precedence over installation discovery.
@@ -165,6 +172,7 @@ public partial class AgentView : UserControl
             start.Environment["PYTHONPATH"] = Path.Combine(root, "src");
             start.Environment["PYTHONIOENCODING"] = "utf-8";
             start.Environment["PYTHONUNBUFFERED"] = "1";
+            start.Environment["ARCGIS_AGENT_DATA_HOME"] = FindDataHome();
             worker = Process.Start(start) ?? throw new InvalidOperationException("无法启动 Python 3.11+。");
             _ = worker.StandardError.ReadToEndAsync();
             string? line = await worker.StandardOutput.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(20));
@@ -909,12 +917,12 @@ public partial class AgentView : UserControl
     }
     private void LoadAppearance()
     {
-        try { string path = Path.Combine(FindRoot(), "workspace", "appearance.json"); if (File.Exists(path)) { using var doc = JsonDocument.Parse(File.ReadAllText(path)); dark = doc.RootElement.GetProperty("dark").GetBoolean(); ShowReasoning.IsChecked = doc.RootElement.GetProperty("reasoning").GetBoolean(); MotionToggle.IsChecked = doc.RootElement.GetProperty("motion").GetBoolean(); } } catch (Exception) { }
+        try { string path = Path.Combine(FindDataHome(), "workspace", "appearance.json"); if (File.Exists(path)) { using var doc = JsonDocument.Parse(File.ReadAllText(path)); dark = doc.RootElement.GetProperty("dark").GetBoolean(); ShowReasoning.IsChecked = doc.RootElement.GetProperty("reasoning").GetBoolean(); MotionToggle.IsChecked = doc.RootElement.GetProperty("motion").GetBoolean(); } } catch (Exception) { }
         ApplyTheme();
     }
     private void SaveAppearance()
     {
-        try { string folder = Path.Combine(FindRoot(), "workspace"); Directory.CreateDirectory(folder); File.WriteAllText(Path.Combine(folder, "appearance.json"), JsonSerializer.Serialize(new { dark, reasoning = ShowReasoning.IsChecked == true, motion = MotionToggle.IsChecked == true })); } catch (Exception) { }
+        try { string folder = Path.Combine(FindDataHome(), "workspace"); Directory.CreateDirectory(folder); File.WriteAllText(Path.Combine(folder, "appearance.json"), JsonSerializer.Serialize(new { dark, reasoning = ShowReasoning.IsChecked == true, motion = MotionToggle.IsChecked == true })); } catch (Exception) { }
     }
     private void StopWorker()
     {

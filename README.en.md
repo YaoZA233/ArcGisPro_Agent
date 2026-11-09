@@ -31,7 +31,7 @@ Every feature and fix batch is recorded with its concrete changes, affected modu
 
 ### Updates
 
-When the ArcGIS Pro pane opens, it checks `update.json` in the background. Network or manifest failures do not affect normal use. When a newer version is available, the pane shows an update button and opens the GitHub Release page. Close ArcGIS Pro before installing a downloaded source ZIP or `.esriAddInX`; keep `config/local.toml`, `.env.local`, and `workspace`. The current release does not replace Python files or locked add-in DLLs while Pro is running.
+When the ArcGIS Pro pane opens, it checks the bundled `update.json` in the background. Network or manifest failures do not affect normal use. When a newer version is available, the pane shows an update button and opens the GitHub Release page. Close ArcGIS Pro before installing the new `.esriAddInX`. The pane keeps its API keys and workspace under `%LOCALAPPDATA%\ArcGISAgent`, so reinstalling the add-in preserves connections, chat history, memory and task results. The repository's `.env.local` and `workspace` remain separate for CLI and toolbox development.
 
 ## Quick start
 
@@ -61,7 +61,7 @@ Other entry points:
 
 Historical ArcPy verification on the development machine (not validation of this self-correction batch): `E:\programs\ArcGIS\bin\Python\envs\arcgispro-py3\python.exe`, ArcGIS Pro **3.5.2**, Python **3.11.11**, license level **ArcInfo**. The registry version field may report the base version, so trust what `doctor` reads from ArcPy.
 
-Keys are stored in the ignored `.env.local` at the repository root, as an ordinary unencrypted local file; a process environment variable for the matching provider takes precedence. Enter them through the hidden `setup-key` prompt or the panel's dedicated API key field — never in a chat message or a command-line argument. The legacy DeepSeek settings in `config/local.toml` still apply until you save a connection, after which the workspace connection configuration wins.
+Keys are stored in a local `.env.local` file as ordinary unencrypted text; the Pro pane uses `%LOCALAPPDATA%\ArcGISAgent\.env.local`, while the CLI uses the repository root. A process environment variable for the matching provider takes precedence. Enter keys through the hidden `setup-key` prompt or the pane's dedicated API key field, never in a chat message or command-line argument. The legacy DeepSeek settings in `config/local.toml` still apply until you save a connection, after which the workspace connection configuration wins.
 
 If the PowerShell execution policy blocks the scripts, run them from a shell that permits local scripts, or use Python directly:
 
@@ -85,7 +85,7 @@ The pane offers model list refresh, model name, thinking level (off / low / high
 
 Attachments can be added by button or drag-and-drop: images, UTF-8 text, and GIS data paths. Image and text content is sent to the active provider; `.shp`, `.gdb`, `.gpkg`, `.tif`, `.aprx`, `.lyrx` and `.xlsx` send only their local paths for tools to read. Up to 6 attachments per message, 6 MiB per image, 256 KiB and 40000 characters per text file, 16 MiB total. DeepSeek image input currently works with `deepseek-flash`; remove image attachments when switching to `deepseek-v4-pro`.
 
-Supported: stopping the current task, resuming past conversations, exporting to Markdown, copying answers, opening the task directory, and adding generated data to the current map. Sessions live in `workspace/chats`; image bytes are not written into history files, so re-attach an image after resuming. Partial GIS results created before a stop may remain. The appearance button toggles light or dark, motion can be turned off in settings, and the system animation preference is respected.
+Supported: stopping the current task, resuming past conversations, exporting to Markdown, copying answers, opening the task directory, and adding generated data to the current map. Pane sessions live in `%LOCALAPPDATA%\ArcGISAgent\workspace\chats`; image bytes are not written into history files, so re-attach an image after resuming. Partial GIS results created before a stop may remain. The appearance button toggles light or dark, motion can be turned off in settings, and the system animation preference is respected.
 
 The pane passes the current Pro project path into the conversation. After you approve `map_context`, the Pro SDK reads the session's map, layers and unsaved visibility state and reports supported local data paths. Approving `add_to_map` or `set_layer_visibility` modifies the specified map, and **the project is never saved automatically**. Analysis runs in a separate ArcPy process that reads data from disk: it cannot reach `CURRENT` and does not inherit the Pro selection set. A task that must cover only selected features needs an explicit attribute condition, or a selection export first (`get_selection` → `export_selection`); processing a whole layer must never be presented as processing the selection.
 
@@ -265,7 +265,7 @@ Inside a restricted execution sandbox ArcPy can crash at the Windows native leve
 
 Full text in [SECURITY.md](SECURITY.md). In short:
 
-- API keys are written only to `.env.local` in the repository root; `workspace/` stores connection profiles (endpoint, model ID, capability flags) without any key. Both are excluded by `.gitignore`, and no real credential appears anywhere in the source.
+- API keys are written only to a local `.env.local` file (under `%LOCALAPPDATA%\ArcGISAgent` for the Pro pane, or the repository root for CLI); `workspace/` stores connection profiles without keys. Repository-local data is excluded by `.gitignore`, and no real credential appears in source.
 - Enter keys through the hidden `setup-key` prompt or the pane's key field. Never pass them as command-line arguments (they end up in the Windows process list and shell history), and never paste them into a conversation or an issue.
 - Conversation content, attached text and the tool results you approve are sent to the active provider; GIS data files themselves are not uploaded — only their local paths.
 - Task logs contain input paths, field information and approval decisions, so manage `workspace` according to your local GIS data handling requirements.

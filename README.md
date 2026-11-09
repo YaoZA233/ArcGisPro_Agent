@@ -31,9 +31,9 @@
 
 ### 更新机制
 
-面板打开后会在后台检查仓库根目录的 [`update.json`](update.json)，网络不可用时不影响正常使用。发现新版本后，顶部会显示版本按钮并打开 GitHub Release 页面；请关闭 ArcGIS Pro 后下载源码 ZIP 或 `.esriAddInX`，再保留本机的 `config/local.toml`、`.env.local` 和 `workspace`。当前版本不会在 Pro 运行期间自动覆盖 Python 源码或插件 DLL。
+面板打开后会在后台检查安装包内的 [`update.json`](update.json)，网络不可用时不影响正常使用。发现新版本后，顶部会显示版本按钮并打开 GitHub Release 页面；请关闭 ArcGIS Pro 后安装新版 `.esriAddInX`。Pro 面板的 API Key 与 `workspace` 持久保存在 `%LOCALAPPDATA%\ArcGISAgent`，重新安装插件不会清除连接、聊天历史、长期记忆或任务成果。开发用仓库根 `.env.local` 与 `workspace` 仍独立保留给 CLI 和工具箱使用。
 
-发布新版本时请同步更新 `VERSION`、`CHANGELOG.md` 和 `update.json`，并在 GitHub 创建同名版本标签（例如 `v0.2.0`）。
+发布新版本时请同步更新 `VERSION`、`CHANGELOG.md` 和 `update.json`，并在 GitHub 创建同名版本标签（例如 `v0.2.1`）。
 
 ## 快速开始
 
@@ -66,7 +66,7 @@ CLI 将模型思考、工具确认与结果、最终答复和 token 用量分区
 
 历史本机 ArcPy 核验记录（非本批自纠验证）：`E:\programs\ArcGIS\bin\Python\envs\arcgispro-py3\python.exe`，ArcGIS Pro **3.5.2**、Python **3.11.11**、产品级别 **ArcInfo**。注册表的版本字段可能是基础版本，应以 `doctor` 的 ArcPy 结果为准。
 
-密钥保存在仓库下被忽略的 `.env.local`，是普通本机文件，不会自动加密；对应供应商的进程环境变量优先。请在隐藏输入的 `setup-key` 提示或面板专用 API Key 输入框填写，勿放入聊天消息或命令行参数。旧的 `config/local.toml` DeepSeek 配置继续生效，保存连接后以工作区连接配置为准。
+密钥保存在本机 `.env.local`，是普通本机文件，不会自动加密；Pro 面板使用 `%LOCALAPPDATA%\ArcGISAgent\.env.local`，CLI 使用仓库根目录 `.env.local`，对应供应商的进程环境变量优先。请在隐藏输入的 `setup-key` 提示或面板专用 API Key 输入框填写，勿放入聊天消息或命令行参数。旧的 `config/local.toml` DeepSeek 配置继续生效，保存连接后以工作区连接配置为准。
 
 如果 PowerShell 执行策略阻止脚本，可在允许执行本地脚本的 PowerShell 中运行；也可直接使用 Python：
 
@@ -90,7 +90,7 @@ python -m unittest discover -s tests -v
 
 可通过附件按钮或拖放添加图片、UTF-8 文本、GIS 数据路径。图片与文本内容会发送给当前连接；`.shp`、`.gdb`、`.gpkg`、`.tif`、`.aprx`、`.lyrx` 和 `.xlsx` 只发送本地路径供工具使用。一次最多 6 个附件，图片单个最多 6 MiB，文本单个最多 256 KiB 且不超过 40000 字符，总量最多 16 MiB。目前 DeepSeek 的图片输入支持 `deepseek-flash`，切换为 `deepseek-v4-pro` 时请移除图片附件。
 
-支持停止当前任务、历史对话恢复、导出 Markdown、复制答复、打开任务目录，以及将生成的数据添加到当前地图。会话保存在 `workspace/chats`；图片本体不会写入历史文件，恢复后如需再次查看图片请重新添加。停止时已创建的部分 GIS 成果可能保留。外观按钮可切换浅色或深色，动效可在设置中关闭，也遵循系统动画设置。
+支持停止当前任务、历史对话恢复、导出 Markdown、复制答复、打开任务目录，以及将生成的数据添加到当前地图。Pro 面板会话保存在 `%LOCALAPPDATA%\ArcGISAgent\workspace\chats`；图片本体不会写入历史文件，恢复后如需再次查看图片请重新添加。停止时已创建的部分 GIS 成果可能保留。外观按钮可切换浅色或深色，动效可在设置中关闭，也遵循系统动画设置。
 
 面板会把当前 Pro 工程路径作为对话上下文。授权 `map_context` 后，Pro SDK 可读取当前会话的地图、图层和未保存的可见性状态，并提供支持的本地数据路径。授权 `add_to_map` 或 `set_layer_visibility` 后可修改指定地图；**不会自动保存工程**。分析由独立 ArcPy 进程读取磁盘数据，无法访问 `CURRENT`，也不会继承 Pro 当前选择集。仅处理选中要素的任务须提供明确属性条件，或先导出选择集（`get_selection` → `export_selection`）；不能把整层处理冒充选中要素处理。
 
@@ -270,7 +270,7 @@ workspace/runs/<UTC时间_唯一ID>/
 
 完整说明见 [SECURITY.md](SECURITY.md)。要点：
 
-- API 密钥只写入仓库根的 `.env.local`；`workspace/` 只保存连接配置（接口地址、模型 ID、能力开关，不含密钥）。两者都被 `.gitignore` 排除，源码中不出现任何真实密钥。
+- API 密钥只写入本机 `.env.local`（Pro 面板位于 `%LOCALAPPDATA%\ArcGISAgent`，CLI 位于仓库根）；workspace 只保存连接配置（接口地址、模型 ID、能力开关，不含密钥）。仓库内的两类数据都由 `.gitignore` 排除，源码中不出现真实密钥。
 - 用 `setup-key` 的隐藏输入或面板的密钥输入框填写。不要放进命令行参数（会进入 Windows 进程列表与 shell 历史），也不要贴进对话或 Issue。
 - 对话内容、附件文本和已授权读取的工具结果会发送给当前连接配置的服务商；GIS 数据文件本身不上传，只发送本地路径。
 - 任务日志包含输入路径、字段信息和授权决定，请按本地 GIS 数据的权限要求管理 `workspace`。
