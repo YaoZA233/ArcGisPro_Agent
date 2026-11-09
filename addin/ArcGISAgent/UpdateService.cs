@@ -26,7 +26,12 @@ internal static class UpdateService
     internal static async Task<UpdateInfo?> CheckAsync(CancellationToken cancellationToken = default)
     {
         CacheEntry? cached = ReadCache();
-        if (cached is not null && DateTimeOffset.UtcNow - cached.CheckedAt < TimeSpan.FromHours(24)) return cached.Update;
+        if (cached is not null && DateTimeOffset.UtcNow - cached.CheckedAt < TimeSpan.FromHours(24))
+        {
+            if (IsNewerThanCurrent(cached.Update)) return cached.Update;
+            if (cached.Update is not null) WriteCache(null);
+            else return null;
+        }
         try
         {
             using var response = await Client.GetAsync(ManifestUrl, cancellationToken).ConfigureAwait(false);
@@ -64,6 +69,10 @@ internal static class UpdateService
 
     private static string Required(JsonElement root, string name) => root.GetProperty(name).GetString() ?? "";
     private static string Optional(JsonElement root, string name) => root.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() ?? "" : "";
+
+    private static bool IsNewerThanCurrent(UpdateInfo? update) =>
+        update is not null && Version.TryParse(update.Version, out var remote) &&
+        Version.TryParse(CurrentVersion, out var local) && remote > local;
 
     private static CacheEntry? ReadCache()
     {

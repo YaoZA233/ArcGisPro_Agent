@@ -1,5 +1,19 @@
 # 更新日志
 
+## 2026-11-09：修复已更新版本仍提示更新
+
+- 更新检查读取 24 小时缓存时，现在会再次比较缓存版本与当前插件程序集版本；缓存版本不再较新时会清除旧提示并重新检查清单，避免安装 0.2.0 后仍提示更新到 0.2.0。
+- 影响模块：`addin/ArcGISAgent/UpdateService.cs`。
+- 验证：`scripts/build-addin.ps1` Release 构建及 `.esriAddInX` 打包通过（0 警告、0 错误）；当前未能读取 ArcGIS Pro 实例中实际加载的程序集版本。
+- 限制：当前环境无法读取用户 ArcGIS Pro 实际加载的插件程序集版本，也无法从 GitHub 获取线上清单（连接被重置）。
+
+## 2026-11-09：修复插件 Ribbon 中文乱码
+
+- 打包脚本读取无 BOM 的 UTF-8 `Config.daml` 时显式指定 UTF-8，避免 Windows PowerShell 按系统代码页解码后把 Ribbon 中文标题和提示写成乱码。
+- 影响模块：`scripts/build-addin.ps1`、生成的 `ArcGISAgent.esriAddInX`。
+- 验证：重新构建 Release 插件，并检查打包后的 DAML 中文标题、按钮名和提示文本。
+- 限制：需在 ArcGIS Pro 中重新安装插件并重启后，面板 Ribbon 才会显示修正文本。
+
 ## 2026-11-08：全面升级制图审美与高级出图系统
 
 - **配色库大幅扩充与审美升级**：

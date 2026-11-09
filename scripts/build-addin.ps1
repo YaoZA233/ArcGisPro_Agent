@@ -22,7 +22,7 @@ Copy-Item -LiteralPath (Join-Path $repoRoot 'VERSION') -Destination $agent -Forc
 Copy-Item -LiteralPath (Join-Path $repoRoot 'pyproject.toml') -Destination $agent -Force
 Copy-Item -LiteralPath (Join-Path $repoRoot 'src') -Destination $agent -Recurse -Force
 Copy-Item -LiteralPath (Join-Path $repoRoot 'config') -Destination $agent -Recurse -Force
-$daml = Get-Content -LiteralPath (Join-Path $repoRoot 'addin\ArcGISAgent\Config.daml') -Raw
+$daml = Get-Content -LiteralPath (Join-Path $repoRoot 'addin\ArcGISAgent\Config.daml') -Raw -Encoding UTF8
 $daml = [regex]::Replace($daml, '(<AddInInfo\b[^>]*\bversion=")[^"]+', { param($match) $match.Groups[1].Value + $agentVersion }, 1)
 [IO.File]::WriteAllText((Join-Path $stage 'Config.daml'), $daml, [Text.UTF8Encoding]::new($false))
 [IO.File]::WriteAllText((Join-Path $install 'agent-home.txt'), 'agent', [Text.UTF8Encoding]::new($false))
